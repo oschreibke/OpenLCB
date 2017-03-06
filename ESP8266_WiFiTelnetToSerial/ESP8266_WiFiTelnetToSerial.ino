@@ -29,23 +29,23 @@ WiFiServer server(23);
 WiFiClient serverClients[MAX_SRV_CLIENTS];
 
 void setup() {
-  Serial1.begin(115200);
+  Serial.begin(115200);
   WiFi.begin(ssid, password);
-  Serial1.print("\nConnecting to "); Serial1.println(ssid);
+  Serial.print("\nConnecting to "); Serial.println(ssid);
   uint8_t i = 0;
   while (WiFi.status() != WL_CONNECTED && i++ < 20) delay(500);
   if(i == 21){
-    Serial1.print("Could not connect to"); Serial1.println(ssid);
+    Serial.print("Could not connect to"); Serial.println(ssid);
     while(1) delay(500);
   }
   //start UART and the server
-  Serial.begin(115200);
+  //Serial.begin(115200);
   server.begin();
   server.setNoDelay(true);
   
-  Serial1.print("Ready! Use 'telnet ");
-  Serial1.print(WiFi.localIP());
-  Serial1.println(" 23' to connect");
+  Serial.print("Ready! Use 'telnet ");
+  Serial.print(WiFi.localIP());
+  Serial.println(" 23' to connect");
 }
 
 void loop() {
@@ -57,7 +57,7 @@ void loop() {
       if (!serverClients[i] || !serverClients[i].connected()){
         if(serverClients[i]) serverClients[i].stop();
         serverClients[i] = server.available();
-        Serial1.print("New client: "); Serial1.print(i);
+        Serial.print("New client: "); Serial.println(i);
         continue;
       }
     }
@@ -70,7 +70,17 @@ void loop() {
     if (serverClients[i] && serverClients[i].connected()){
       if(serverClients[i].available()){
         //get data from the telnet client and push it to the UART
-        while(serverClients[i].available()) Serial.write(serverClients[i].read());
+        //while(serverClients[i].available()) Serial.write(serverClients[i].read());
+        if (serverClients[i].available()){
+          int byteCnt = serverClients[i].available();
+          Serial.print("Bytes Available: ");
+          Serial.println(byteCnt);
+          for(int x = 0; x < byteCnt; x++){
+            Serial.write(serverClients[i].read());
+            Serial.print("");
+          }
+          Serial.println(); 
+          }
       }
     }
   }
