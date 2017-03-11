@@ -57,7 +57,7 @@ void loop() {
       if (!serverClients[i] || !serverClients[i].connected()){
         if(serverClients[i]) serverClients[i].stop();
         serverClients[i] = server.available();
-        Serial.print("New client: "); Serial.println(i);
+        Serial.print("New client = "); Serial.println(i);
         continue;
       }
     }
@@ -73,7 +73,7 @@ void loop() {
         //while(serverClients[i].available()) Serial.write(serverClients[i].read());
         if (serverClients[i].available()){
           int byteCnt = serverClients[i].available();
-          Serial.print("Bytes Available: ");
+          Serial.print("Bytes Available = ");
           Serial.println(byteCnt);
           for(int x = 0; x < byteCnt; x++){
             Serial.write(serverClients[i].read());
