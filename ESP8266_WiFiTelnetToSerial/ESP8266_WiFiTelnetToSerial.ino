@@ -1,9 +1,9 @@
-/* 
+/*
   WiFiTelnetToSerial - Example Transparent UART to Telnet Server for esp8266
 
   Copyright (c) 2015 Hristo Gochkov. All rights reserved.
   This file is part of the ESP8266WiFi library for Arduino environment.
- 
+
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
   License as published by the Free Software Foundation; either
@@ -19,6 +19,7 @@
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 #include <ESP8266WiFi.h>
+//#define SHOWMESSAGES
 
 //how many clients should be able to telnet to this ESP8266
 #define MAX_SRV_CLIENTS 1
@@ -31,33 +32,41 @@ WiFiClient serverClients[MAX_SRV_CLIENTS];
 void setup() {
   Serial.begin(115200);
   WiFi.begin(ssid, password);
+#if (SHOWMESSAGES)
   Serial.print("\nConnecting to "); Serial.println(ssid);
+#endif
   uint8_t i = 0;
   while (WiFi.status() != WL_CONNECTED && i++ < 20) delay(500);
-  if(i == 21){
+  if (i == 21) {
+#if (SHOWMESSAGES)
     Serial.print("Could not connect to"); Serial.println(ssid);
-    while(1) delay(500);
+#endif
+    while (1) delay(500);
   }
   //start UART and the server
   //Serial.begin(115200);
   server.begin();
   server.setNoDelay(true);
-  
+
+#if (SHOWMESSAGES)
   Serial.print("Ready! Use 'telnet ");
   Serial.print(WiFi.localIP());
   Serial.println(" 23' to connect");
+#endif
 }
 
 void loop() {
   uint8_t i;
   //check if there are any new clients
-  if (server.hasClient()){
-    for(i = 0; i < MAX_SRV_CLIENTS; i++){
+  if (server.hasClient()) {
+    for (i = 0; i < MAX_SRV_CLIENTS; i++) {
       //find free/disconnected spot
-      if (!serverClients[i] || !serverClients[i].connected()){
-        if(serverClients[i]) serverClients[i].stop();
+      if (!serverClients[i] || !serverClients[i].connected()) {
+        if (serverClients[i]) serverClients[i].stop();
         serverClients[i] = server.available();
+#if (SHOWMESSAGES)
         Serial.print("New client = "); Serial.println(i);
+#endif
         continue;
       }
     }
@@ -66,32 +75,36 @@ void loop() {
     serverClient.stop();
   }
   //check clients for data
-  for(i = 0; i < MAX_SRV_CLIENTS; i++){
-    if (serverClients[i] && serverClients[i].connected()){
-      if(serverClients[i].available()){
+  for (i = 0; i < MAX_SRV_CLIENTS; i++) {
+    if (serverClients[i] && serverClients[i].connected()) {
+      if (serverClients[i].available()) {
         //get data from the telnet client and push it to the UART
         //while(serverClients[i].available()) Serial.write(serverClients[i].read());
-        if (serverClients[i].available()){
+        if (serverClients[i].available()) {
           int byteCnt = serverClients[i].available();
+#if (SHOWMESSAGES)
           Serial.print("Bytes Available = ");
           Serial.println(byteCnt);
-          for(int x = 0; x < byteCnt; x++){
+#endif
+          for (int x = 0; x < byteCnt; x++) {
             Serial.write(serverClients[i].read());
             Serial.print("");
           }
-          Serial.println(); 
-          }
+#if (SHOWMESSAGES)
+          Serial.println();
+#endif
+        }
       }
     }
   }
   //check UART for data
-  if(Serial.available()){
+  if (Serial.available()) {
     size_t len = Serial.available();
     uint8_t sbuf[len];
     Serial.readBytes(sbuf, len);
     //push UART data to all connected telnet clients
-    for(i = 0; i < MAX_SRV_CLIENTS; i++){
-      if (serverClients[i] && serverClients[i].connected()){
+    for (i = 0; i < MAX_SRV_CLIENTS; i++) {
+      if (serverClients[i] && serverClients[i].connected()) {
         serverClients[i].write(sbuf, len);
         delay(1);
       }
