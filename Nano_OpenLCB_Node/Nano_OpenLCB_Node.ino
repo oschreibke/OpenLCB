@@ -35,6 +35,7 @@ void setup() {
 
   node.setCanInt(&canInt);
 
+  Serial.println("Initialisation complete");
 }
 
 void loop() {

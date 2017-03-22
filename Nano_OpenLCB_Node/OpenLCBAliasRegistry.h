@@ -11,7 +11,7 @@
     #define MAX_ALIASES 48 // the maximum nodes in a segment
 #endif
 
-enum NodeAliasStatus: uint8_t {nodeAliasInit, CID1received, CID2received, CID3received, CID4received, RIDreceived};
+enum NodeAliasStatus: uint8_t {nodeAliasNotFound, CID1received, CID2received, CID3received, CID4received, RIDreceived};
 
 struct NodeAlias{
     uint16_t alias;
@@ -32,6 +32,7 @@ class OpenLCBAliasRegistry {
     bool remove(uint16_t alias);
     NodeAliasStatus getStatus(uint16_t alias);    
     bool setStatus(uint16_t alias, NodeAliasStatus status);
+    bool setNodeId(uint16_t alias, uint64_t newNodeId);
     
   private:
     uint8_t findAlias(uint16_t alias);  

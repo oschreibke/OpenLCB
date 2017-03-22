@@ -43,7 +43,7 @@ NodeAliasStatus OpenLCBAliasRegistry::getStatus(uint16_t alias){
 	if (i < nodes){
 		return nodeEntry[i].status;
 	}
-	return nodeAliasInit;	// not found	
+	return nodeAliasNotFound;	// not found	
 
 }	
 
@@ -84,6 +84,16 @@ bool OpenLCBAliasRegistry::setStatus(uint16_t alias, NodeAliasStatus status){
 	 
 	 return false;  // didn't find an entry to update
 	}	
+
+bool OpenLCBAliasRegistry::setNodeId(uint16_t alias, uint64_t newNodeId){
+	uint8_t i = findAlias(alias);
+	if (i < nodes){
+		nodeEntry[i].nodeId = newNodeId;
+		return true;
+		}
+	 
+	 return false;  // didn't find an entry to update
+	}		
 
 uint8_t OpenLCBAliasRegistry::findAlias(uint16_t alias){
     for (uint8_t i = 0; i < nodes; i++){

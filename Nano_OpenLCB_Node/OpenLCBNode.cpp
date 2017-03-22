@@ -41,7 +41,11 @@ OpenLCBNode::OpenLCBNode(const char* Id) {
   }
   // we got this far, the node id must be OK
   strcpy (strNodeId, Id);
-  GenAlias();
+  genAlias();
+  
+Serial.println("Node initialised") ;
+Serial.println(strNodeId); 
+Serial.println(alias);
 }
 
 // this is where the work gets done
@@ -54,7 +58,7 @@ void OpenLCBNode::loop(){
 		if (registry.JMRIRegistered()){
 			// now try registering our alias
             // send the initialised message
-            RegisterMe();
+            registerMe();
 			}
 		}
 }
@@ -75,35 +79,56 @@ char* OpenLCBNode::ToString(){
   return strNodeId;
 }
 
-bool OpenLCBNode::RegisterMe(){
+bool OpenLCBNode::registerMe(){
+	// register the node's alias on the system
+	bool fail = false;
+	
    NodeAliasStatus status = registry.getStatus(alias);
    switch (status){
-	   case nodeAliasInit:
+	   case nodeAliasNotFound:
 			msgOut.setId(((uint32_t)CID1 << 20) | ((uint32_t) (id >> 24) & 0x07FFF000 ) | ((uint32_t)alias & 0x0FFF) );
 			msgOut.setDataLength(0);
-			canInt->sendMessage(&msgOut);
-			registry.add(alias, id, CID1received);
+			if (canInt->sendMessage(&msgOut)){
+				registry.add(alias, id, CID1received);
+			} else {
+				fail = true;
+				break;  // bail if we couldn't send the message
+			}
+
 			break;
 			
 	   case CID1received:
 			msgOut.setId(((uint32_t)CID2 << 20) | ((uint32_t) (id >> 12) & 0x07FFF000 ) | ((uint32_t)alias & 0x0FFF) );
 			msgOut.setDataLength(0);
-			canInt->sendMessage(&msgOut);
-			registry.setStatus(alias, CID2received);
+			if (canInt->sendMessage(&msgOut)){
+				registry.setStatus(alias, CID2received);
+			} else {
+				registry.remove(alias);                // start again if we couldn't send the message
+				fail = true;
+			}
 			break;
 				   
 	   case CID2received:
 			msgOut.setId(((uint32_t)CID3 << 20) | ((uint32_t) (id) & 0x07FFF000 ) | ((uint32_t)alias & 0x0FFF) );
 			msgOut.setDataLength(0);
-			canInt->sendMessage(&msgOut);
-			registry.setStatus(alias, CID3received);
+			if (canInt->sendMessage(&msgOut)){
+				registry.setStatus(alias, CID3received);
+			} else {
+				registry.remove(alias);                // start again if we couldn't send the message
+				fail = true;
+			}
+
 			break;	   
 			
 	   case CID3received:
 			msgOut.setId(((uint32_t)CID4 << 20) | ((uint32_t) (id << 12) & 0x07FFF000 ) | ((uint32_t)alias & 0x0FFF) );
 			msgOut.setDataLength(0);
-			canInt->sendMessage(&msgOut);
-			registry.setStatus(alias, CID4received);
+			if (canInt->sendMessage(&msgOut)){
+				registry.setStatus(alias, CID4received);
+			} else {
+				registry.remove(alias);                // start again if we couldn't send the message
+				fail = true;
+			}
 			waitStart = millis();
 			break;
 				   
@@ -112,25 +137,99 @@ bool OpenLCBNode::RegisterMe(){
 	        if (millis() > waitStart + 200){
 			    msgOut.setId((uint32_t)RID << 20);
 			    msgOut.setDataLength(0);
-			    canInt->sendMessage(&msgOut);
-			    registry.setStatus(alias, RIDreceived);
+			    if (canInt->sendMessage(&msgOut)){
+			        registry.setStatus(alias, RIDreceived);
 			    
-			    // transition to permitted
-			    msgOut.setId((uint32_t)AMD << 20);
-			    msgOut.setDataLength(8);
-			   
-			    permitted = true;
+					// transition to permitted
+					msgOut.setId((uint32_t)AMD << 20);
+					msgOut.setData(((byte*)&id) + 2, 6);       // id is uint64_t - only the low order 48 bits (6 bytes) are actually significant
+					if (!canInt->sendMessage(&msgOut)){
+						permitted = true;
+					} else {
+						fail = true;
+					}
+			    } else {
+				    fail = true;
+			    }
+			break;  
 			}
-	   }	
+	   }
+	   
+	   if (fail){
+		   // if something failed, retry with another alias	
+		   registry.remove(alias);               
+           genAlias(); 
+		}
 }
 
 //
 // private functions
 //
-void OpenLCBNode::GenAlias(){
-  alias = random(1, 65535);
+void OpenLCBNode::genAlias(){
+    alias = random(1, 65535);
+	while (registry.getStatus(alias) !=  nodeAliasNotFound) // make sure no one is using it 
+		alias = random(1, 65535);                           // otherwise generate a new one
 }
 
 void OpenLCBNode::processIncoming(){
+	uint16_t senderAlias;
+	uint64_t senderNodeId;
 	
+	if (canInt->receiveMessage(&msgIn)){
+		if (msgIn.isControlMessage()){  // Alias management
+			
+			// this section is short of error handling
+			// it assumes everyone plays by the rules and that we don't miss any messages
+			
+			senderAlias = (uint16_t (id & 0x00000FFF));
+			switch ((ControlId)((id & 0x07FFF000) >> 12)){
+				case (RID):
+				    if (senderAlias == alias) {
+						// has someone responded to our CID request?
+						registry.remove(alias); // remove our alias (forces a restart)
+					} else {
+						// registering his own alias (we should already know this alias)
+						registry.setStatus(senderAlias, RIDreceived);
+					}
+					break;
+					
+				case (AMD):
+				case (AME):
+				case (AMR):
+				    break;
+				default:
+					switch ((byte)((id & 0x07FFF000) >> 20)) {
+						// the CIDs
+						case (0x07): //CID1
+							registry.add(senderAlias, ((uint64_t) (id & 0x00FFF000)) << 24, CID1received);
+							break;
+							
+						case (0x06): //CID2
+						    senderNodeId = registry.getNodeId(senderAlias);
+						    senderNodeId |= ((uint64_t) id & 0x00FFF000) << 12;
+						    registry.setNodeId(senderAlias, senderNodeId);
+						    registry.setStatus(senderAlias, CID2received);
+						    break;
+						    
+						case (0x05): //CID3
+						    senderNodeId = registry.getNodeId(senderAlias);
+						    senderNodeId |= ((uint64_t) id & 0x00FFF000);
+						    registry.setNodeId(senderAlias, senderNodeId);
+						    registry.setStatus(senderAlias, CID3received);
+						    break;
+						    
+						case (0x04): //CID4	
+							senderNodeId = registry.getNodeId(senderAlias);
+						    senderNodeId |= ((uint64_t) id & 0x00FFF000) >> 12;
+						    registry.setNodeId(senderAlias, senderNodeId);
+						    registry.setStatus(senderAlias, CID2received);
+						    break;
+						    
+						default:
+						    break;														
+					}
+				break;
+			}
+		}
 	}
+}

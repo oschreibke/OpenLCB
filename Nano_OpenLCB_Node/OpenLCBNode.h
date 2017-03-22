@@ -20,6 +20,12 @@ class OpenLCBNode {
     OpenLCBAliasRegistry registry;
     uint32_t waitStart;
     OpenLCBCANInterface* canInt;
+    
+    const char* Manufacturer = "Solwiz.local";
+    const char* ModelName    = "Open LCB node";
+    const char* HardwareVersion = "0.1";
+    const char* SoftwareVersion = "0.1";
+
 
   public:
     OpenLCBNode(const char* Id);
@@ -30,9 +36,9 @@ class OpenLCBNode {
     void loop();
 
   private:
-    void GenAlias();
+    void genAlias();
     void processIncoming();
-    bool RegisterMe();
+    bool registerMe();
     
 };
 

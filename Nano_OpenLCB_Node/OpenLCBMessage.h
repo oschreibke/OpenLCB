@@ -18,7 +18,7 @@
 //                      xxxxxxxxxxxx  Source NID Alias
 //
 
-// control frame ids (bit 27 = 0)
+// control frame ids (bit 27 = 0) (s-9.7.2.1)
 enum ControlId: uint16_t {CID1 = 0x0700,      // Check ID  // N.B. the low-order nybble will be overwritten
 	                      CID2 = 0x0600,
 	                      CID3 = 0x0500,
@@ -37,7 +37,7 @@ class OpenLCBMessage {
       uint32_t id;
       byte data[8];
       uint8_t dataLength;
-      bool newMessage;
+//      bool newMessage;
       
   public:
     OpenLCBMessage(void);
@@ -45,13 +45,14 @@ class OpenLCBMessage {
     void setId(uint32_t newId);
     uint8_t getDataLength();
     void setDataLength(uint8_t newDataLength);
-//    void getData(byte* dataBuf, uint8_t* length);
-//    void setData(byte* newDataBuf, uint8_t newDataLength);
+    void getData(byte* dataBuf, uint8_t length);
+    void setData(byte* newDataBuf, uint8_t newDataLength);
     uint32_t* getPId();
 	byte* getPData();
 	uint8_t * getPDataLength();
 	void initialise();
-	bool getNewMessage();
+//	bool getNewMessage();
+    bool isControlMessage();
 
   private:
 //    void GenAlias();

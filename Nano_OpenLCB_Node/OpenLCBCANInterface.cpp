@@ -28,13 +28,26 @@ bool OpenLCBCANInterface::receiveMessage(OpenLCBMessage* msg){
 	uint32_t* msgId; 
 	byte*  msgData;
 	uint8_t* msgLen;
+	uint8_t rc;
 	
 	msgId = msg->getPId();
 	msgData = msg->getPData();
 	msgLen = msg->getPDataLength();
 	
-	can->readMsgBuf(msgId, msgData, msgLen); 
+	rc = can->readMsgBuf(msgId, msgData, msgLen); 
+	// ignore messages with standard (11 bit) ids or RTR messages
+	// If the ID AND 0x80000000 EQUALS 0x80000000, the ID is of the Extended type, otherwise it is standard.  
+    // If the ID AND 0x40000000 EQUALS 0x40000000, the message is a remote request.  
+    if (rc == CAN_OK) {
+	    if ((*msgId & 0xC0000000) == 0x0){
+	        return true;
+	    } else {
+	        return false;
+		}
+	} else {
+		return false;
 	}
+}
 
 bool OpenLCBCANInterface::sendMessage(OpenLCBMessage* msg){
 	uint32_t msgId; 
@@ -46,6 +59,8 @@ bool OpenLCBCANInterface::sendMessage(OpenLCBMessage* msg){
 	data = msg->getPData();
 	// msg->getData(&data, dataLength);
     // sendMsgBuf(INT32U id, INT8U len, INT8U *buf);  
+    // To mark an ID as extended, OR the ID with 0x80000000.
+    msgId |= 0x80000000;
 	byte sndStat = can->sendMsgBuf(msgId, 0, 8, data);
 	return (sndStat == CAN_OK);
 	}

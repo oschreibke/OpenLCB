@@ -20,17 +20,17 @@ void OpenLCBMessage::setDataLength(uint8_t newDataLength){
 	dataLength = newDataLength;
 }
 
-//void OpenLCBMessage::getData(byte* dataBuf, uint8_t* length){
-//	length = datalength;
-//	for(int i = 0; i < datalength; i++)
-//	    dataBuf[i] = data[i];
-//}
+void OpenLCBMessage::getData(byte* dataBuf, uint8_t length){
+	length = dataLength;
+	for(uint8_t i = 0; i < dataLength; i++)
+	    dataBuf[i] = data[i];
+}
 
-//void OpenLCBMessage::setData(byte* newDataBuf, uint8_t newDataLength){
-//	dataLength = newDataLength;
-//	for(int i = 0; i < datalength; i++)
-//	    newDataBuf[i] = data[i];
-//}
+void OpenLCBMessage::setData(byte* newDataBuf, uint8_t newDataLength){
+	dataLength = newDataLength;
+	for(uint8_t i = 0; i < dataLength; i++)
+	    newDataBuf[i] = data[i];
+}
 
 uint32_t* OpenLCBMessage::getPId(){
 	return &id;
@@ -48,9 +48,14 @@ void OpenLCBMessage::initialise(){
 	id = 0;
 	dataLength = 0;
 	for (uint8_t i = 0; i < 8; i++) data[i] = 0x0; 
-    newMessage = false;	
+//    newMessage = false;	
 	}
 
-bool OpenLCBMessage::getNewMessage(){
-	return newMessage;
+//bool OpenLCBMessage::getNewMessage(){
+//	return newMessage;
+//	}
+
+bool OpenLCBMessage::isControlMessage(){
+	return (id & 0x08000000ULL != 0);
 	}
+
