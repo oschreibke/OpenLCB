@@ -25,6 +25,11 @@
 #define MAX_SRV_CLIENTS 1
 const char* ssid = "Schreibke";
 const char* password = "Merlin_rules_ok";
+const IPAddress SERVERIP(192, 168, 0, 112);
+const IPAddress GATEWAY(192, 168, 0, 1);
+const IPAddress SUBNET(255, 255, 255, 0);
+const IPAddress DNS1(192, 168, 0, 32);
+const IPAddress DNS2(192, 168, 0, 32);
 
 WiFiServer server(23);
 WiFiClient serverClients[MAX_SRV_CLIENTS];
@@ -33,7 +38,8 @@ void setup() {
   Serial.begin(115200);
   WiFi.begin(ssid, password);
 #if (SHOWMESSAGES)
-  Serial.print("\nConnecting to "); Serial.println(ssid);
+  Serial.println("\nESP8266_WiFiTelnetToSerial");
+  Serial.print("Connecting to "); Serial.println(ssid);
 #endif
   uint8_t i = 0;
   while (WiFi.status() != WL_CONNECTED && i++ < 20) delay(500);
