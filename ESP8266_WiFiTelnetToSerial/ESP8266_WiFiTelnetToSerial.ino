@@ -28,36 +28,47 @@ const char* password = "Merlin_rules_ok";
 const IPAddress SERVERIP(192, 168, 0, 112);
 const IPAddress GATEWAY(192, 168, 0, 1);
 const IPAddress SUBNET(255, 255, 255, 0);
-const IPAddress DNS1(192, 168, 0, 32);
-const IPAddress DNS2(192, 168, 0, 32);
+const IPAddress DNS(192, 168, 0, 32);
+//const IPAddress DNS2(192, 168, 0, 32);
 
 WiFiServer server(23);
 WiFiClient serverClients[MAX_SRV_CLIENTS];
 
 void setup() {
   Serial.begin(115200);
-  WiFi.begin(ssid, password);
-#if (SHOWMESSAGES)
+
+#ifdef SHOWMESSAGES
   Serial.println("\nESP8266_WiFiTelnetToSerial");
   Serial.print("Connecting to "); Serial.println(ssid);
 #endif
+
+  // set the fixed ip adresses
+  WiFi.config(SERVERIP, GATEWAY, SUBNET, DNS); 
+  
+  WiFi.begin(ssid, password);
+
   uint8_t i = 0;
   while (WiFi.status() != WL_CONNECTED && i++ < 20) delay(500);
   if (i == 21) {
-#if (SHOWMESSAGES)
+#ifdef SHOWMESSAGES
     Serial.print("Could not connect to"); Serial.println(ssid);
 #endif
     while (1) delay(500);
   }
+  
   //start UART and the server
   //Serial.begin(115200);
   server.begin();
   server.setNoDelay(true);
 
-#if (SHOWMESSAGES)
+#ifdef SHOWMESSAGES
   Serial.print("Ready! Use 'telnet ");
   Serial.print(WiFi.localIP());
   Serial.println(" 23' to connect");
+  Serial.print("subnetMask"); Serial.println(WiFi.subnetMask());
+  Serial.print("gatewayIP"); Serial.println(WiFi.gatewayIP());
+  Serial.print("dnsIP"); Serial.println(WiFi.dnsIP());
+
 #endif
 }
 
@@ -70,7 +81,7 @@ void loop() {
       if (!serverClients[i] || !serverClients[i].connected()) {
         if (serverClients[i]) serverClients[i].stop();
         serverClients[i] = server.available();
-#if (SHOWMESSAGES)
+#ifdef SHOWMESSAGES
         Serial.print("New client = "); Serial.println(i);
 #endif
         continue;
@@ -88,7 +99,7 @@ void loop() {
         //while(serverClients[i].available()) Serial.write(serverClients[i].read());
         if (serverClients[i].available()) {
           int byteCnt = serverClients[i].available();
-#if (SHOWMESSAGES)
+#ifdef SHOWMESSAGES
           Serial.print("Bytes Available = ");
           Serial.println(byteCnt);
 #endif
@@ -96,7 +107,7 @@ void loop() {
             Serial.write(serverClients[i].read());
             Serial.print("");
           }
-#if (SHOWMESSAGES)
+#ifdef SHOWMESSAGES
           Serial.println();
 #endif
         }
