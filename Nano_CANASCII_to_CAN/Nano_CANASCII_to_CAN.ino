@@ -41,7 +41,8 @@
 
 #include <SPI.h>
 
-//#define SHOWLCD 1
+//#define SHOWLCD
+//#define SHOWSERIAL
 
 // Arduino SPI Pins
 //
@@ -53,13 +54,13 @@
 // CAN Interrupt D2
 //
 
-#define D2   2
+#define CANINTPIN   2
 //#define GPIO12 12
 //#define GPIO13 13
 //#define GPIO14 14
 //#define GPIO15 15
 
-#if (SHOWLCD)
+#ifdef SHOWLCD
 #include <LiquidCrystal_I2C.h>
 /*
   Pins: SDA   A4
@@ -89,7 +90,7 @@ CAN_message_type  CANMessageType = Standard;
 
 MCP_CAN CAN(10); // Set CS to pin 10
 
-volatile boolean can_msg_received = false;
+//volatile boolean can_msg_received = false;
 
 // send and receive buffers for the can packets
 // CAN => received from the CAN interface; WiFi => received over WiFi
@@ -110,10 +111,10 @@ boolean firstNybble = true;
 char msgString[128];                        // Array to store serial string
 
 
-void MCP2515_ISR()
-{
-  can_msg_received = true;
-}
+//void MCP2515_ISR()
+//{
+//  can_msg_received = true;
+//}
 
 //void CAN_Send(unsigned char cantxValue1, unsigned char cantxValue2, unsigned char cantxValue3, unsigned char cantxValue4, unsigned char cantxValue5, unsigned char cantxValue6, unsigned char cantxValue7, unsigned char cantxValue8) {
 //  unsigned char canMsg[8] = {cantxValue1, cantxValue2, cantxValue3, cantxValue4, cantxValue5, cantxValue6, cantxValue7, cantxValue8};
@@ -141,29 +142,35 @@ char Int2Hex(int nybble) {
 
 void setup() {
   Serial.begin(115200);
+#ifdef SHOWSERIAL
+  Serial.println("Starting...");
+#endif  
 
-#if (SHOWLCD)
+#ifdef SHOWLCD
   lcd.begin (16, 2); //  <<----- My LCD was 16x2
   lcd.setBacklightPin(BACKLIGHT_PIN, POSITIVE);
   lcd.setBacklight(HIGH);
   lcd.clear();
 #endif
+
+  pinMode(CANINTPIN, INPUT); 
+  
   //start UART and the server
   //Serial.begin(115200);
 
   initialised = (CAN.begin(MCP_ANY, CAN_125KBPS, MCP_8MHZ) == CAN_OK);
   if (initialised) {
-#if (SHOWLCD)
+#ifdef SHOWLCD
     lcd.print("can init ok");
 #endif
 
     CAN.setMode(MCP_NORMAL);
 
-    attachInterrupt(D2, MCP2515_ISR, FALLING); // start interrupt
+    //attachInterrupt(CANINTPIN, MCP2515_ISR, FALLING); // start interrupt
     
 //    Serial.println("can init ok");
   }
-#if (SHOWLCD)
+#ifdef SHOWLCD
   else
     lcd.print("Can init fail");
 #endif
@@ -174,14 +181,33 @@ void setup() {
 }
 
 void loop() {
+	char buf[50];
+
   // Send incoming message from CAN to WiFi (if available)
-  if (can_msg_received) {
-    can_msg_received = false;
+  if (!digitalRead(CANINTPIN)) {
+//  if (can_msg_received) {
+#ifdef SHOWSERIAL
+	Serial.println("Message received.");
+#endif	  
+    //can_msg_received = false;
 
     CAN.readMsgBuf(&CANIdentifier, &CANDataLen, CANData);      // Read data: len = data length, buf = data byte(s)
+    
+#ifdef SHOWSERIAL
+    Serial.print("CANIdentifier: "); Serial.println(CANIdentifier, HEX);
+    Serial.print("CANDataLen: "); Serial.println(CANDataLen, HEX);
+    if (CANDataLen > 0){
+        Serial.print("CANData: "); 
+        for (uint8_t i = 0; i < CANDataLen; i++){
+            sprintf(buf, "%02hhX", CANData[i]);
+            Serial.print( buf );
+			}
+        Serial.println("");
+    }
+#endif    
 
     if ((CANIdentifier & 0x40000000) == 0x40000000) {  // Determine if message is a remote request frame.
-#if (SHOWLCD)
+#ifdef SHOWLCD
       sprintf(msgString, " REMOTE REQUEST FRAME");
       lcd.clear();
       lcd.print(msgString);
@@ -197,29 +223,46 @@ void loop() {
         CANIdentifier = CANIdentifier & 0x7FF;
       }
 
-      for (int i = 0; i < 21; i ++) {
-        CANAscii[i] = '\0';  // clear the output string
-      }
-      int pos = 2 + ((CANMessageType == Standard) ? 3 : 8);
-      unsigned long id = CANIdentifier;
+      //for (int i = 0; i < 21; i ++) {
+        //CANAscii[i] = '\0';  // clear the output string
+      //}
+      //int pos = 2 + ((CANMessageType == Standard) ? 3 : 8);
+      //unsigned long id = CANIdentifier;
 
-      CANAscii[0] = ':';
-      CANAscii[1] = ((CANMessageType == Standard) ? 'S' : 'X');
-      for (int i = pos - 1; i >= 2; i--) {                // write the identifier
-        CANAscii[2 + i] = hexDigits[id & 0x0F];
-        id = id << 4;
-      }
-      CANAscii[pos++] = 'N';                              // write the data (if any)
-      for (int i = 0; i < CANDataLen; i++) {
-        CANAscii[pos++] = hexDigits[(CANData[i] >> 4) & 0x0F];
-        CANAscii[pos++] = hexDigits[CANData[i] & 0x0F];
-      }
-      CANAscii[pos] = ';';                                // write the terminator
+      //CANAscii[0] = ':';
+      //CANAscii[1] = ((CANMessageType == Standard) ? 'S' : 'X');
+      //for (int i = pos - 1; i >= 2; i--) {                // write the identifier
+        //CANAscii[2 + i] = hexDigits[id & 0x0F];
+        //id = id << 4;
+      //}
+      //CANAscii[pos++] = 'N';                              // write the data (if any)
+      //for (int i = 0; i < CANDataLen; i++) {
+        //CANAscii[pos++] = hexDigits[(CANData[i] >> 4) & 0x0F];
+        //CANAscii[pos++] = hexDigits[CANData[i] & 0x0F];
+      //}
+      //CANAscii[pos] = ';';                                // write the terminator
+      
+      if (CANMessageType == Extended){
+		  sprintf(CANAscii, ":X%08lXN", CANIdentifier);
+	  } else {
+		  sprintf(CANAscii, ":X%03lXN", CANIdentifier);
+	  }
+	  for (uint8_t i = 0; i < CANDataLen; i++){     // write any data bytes
+		  sprintf(buf, "%02hhX", CANData[i]);
+		  strcat(CANAscii, buf);
+		  }
+	  strcat(CANAscii, ";");                        // add the terminator
       Serial.print((String)CANAscii);               // Transmit the CAN-Ascii message to the client
-#if (SHOWLCD)
+      
+#ifdef SHOWLCD
       lcd.clear();
       lcd.print("Sending to WiFi client: ");
       lcd.println((String)CANAscii);
+#endif
+#ifdef SHOWSERIAL
+      //Serial.print("Sending to WiFi client: ");
+      //Serial.println((String)CANAscii);
+      Serial.println();
 #endif
     }
   }
@@ -229,7 +272,7 @@ void loop() {
     //get data from the telnet client
     while (Serial.available()) {
       char ch = Serial.read();
-#if (SHOWLCD)
+#ifdef SHOWLCD
       lcd.print(ch); // push it to the UART (=> Serial Monitor)
 #endif
       //Serial.write(ch);
@@ -294,7 +337,7 @@ void loop() {
           if (ch == ';') {
             // received a ; - send the message and reset the processor for the next
             byte sndStat = CAN.sendMsgBuf(WiFiIdentifier, (int) WiFiMessageType, WiFiDataLen, WiFiData);
-#if (SHOWLCD)
+#ifdef SHOWLCD
             if (sndStat == CAN_OK) {
               lcd.println("Message Sent Successfully!");
             } else {
