@@ -1,5 +1,5 @@
-// private ID range?   DCC - DIY
-#define ID_PREFIX "08.01.00.0D"  
+// private ID range?  d DCC - DIY
+#define ID_PREFIX "08.01.00.0D."  
 #define ID_SERIAL "00.01"
 #define NODE_ID ID_PREFIX ID_SERIAL
 
@@ -15,29 +15,35 @@
 #define CAN0_CS  10                             // Set CS to pin 10
 
 
-//OpenLCBNode node("02.01.13.00.00.01");
-OpenLCBNode node(NODE_ID);
+OpenLCBNode node;
 MCP_CAN CAN0(CAN0_CS);
 OpenLCBCANInterface canInt;
 
+int looplimit = 0;
 
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
-  Serial.println("Starting...");
+  Serial.println(F("Starting..."));
 
-  randomSeed((uint32_t)(node.getId()  & 0xFFFFFFULL) + micros()); // seed the random number from the low-order 24 bits of the id, plus the elapsed millis
-
+  node.setNodeId(NODE_ID);
+  
   // init the can interface
   canInt.begin(&CAN0, CAN0_INT);
 
-  if (!canInt.getInitialised()) while(1){};  // I've fallen over and can't get up (Todo: something intelligent here)
+  if (canInt.getInitialised()){
+	  node.setCanInt(&canInt);
 
-  node.setCanInt(&canInt);
-
-  Serial.println("Initialisation complete");
+      Serial.println(F("Initialisation complete"));
+   } else {
+      //while(1){};  // I've fallen over and can't get up (Todo: something intelligent here)
+      Serial.println(F("Can initialisation failed"));
+  }
 }
 
 void loop() {
-	node.loop();
+	if (canInt.getInitialised())
+	//    if (looplimit++ < 100)
+	        node.loop();
 }
+

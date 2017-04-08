@@ -1,6 +1,7 @@
 #include "OpenLCBCANInterface.h"
 #include <mcp_can.h>
 #include "OpenLCBMessage.h"
+#include "util.h"
 
 // Method definitions for OpenLCBCANInterface
 
@@ -39,6 +40,11 @@ bool OpenLCBCANInterface::receiveMessage(OpenLCBMessage* msg){
 	// If the ID AND 0x80000000 EQUALS 0x80000000, the ID is of the Extended type, otherwise it is standard.  
     // If the ID AND 0x40000000 EQUALS 0x40000000, the message is a remote request.  
     if (rc == CAN_OK) {
+		Serial.print(F("Message Received. ID = ")); Serial.println(*msgId, HEX); 
+		Serial.print(F("Data bytes: ")); Serial.println(*msgLen); 
+		if (*msgLen > 0){
+		    for(uint8_t i = 0; i < *msgLen; i++) util::print8BitHex(*(msgData+i)); Serial.println();
+		}
 	    if ((*msgId & 0xC0000000) == 0x0){
 	        return true;
 	    } else {
@@ -52,15 +58,23 @@ bool OpenLCBCANInterface::receiveMessage(OpenLCBMessage* msg){
 bool OpenLCBCANInterface::sendMessage(OpenLCBMessage* msg){
 	uint32_t msgId; 
 	uint8_t len;
-	byte* data;
+	byte* pData;
 	
 	msgId = msg->getId();
 	len = msg->getDataLength();
-	data = msg->getPData();
+	pData = msg->getPData();
 	// msg->getData(&data, dataLength);
     // sendMsgBuf(INT32U id, INT8U len, INT8U *buf);  
     // To mark an ID as extended, OR the ID with 0x80000000.
-    msgId |= 0x80000000;
-	byte sndStat = can->sendMsgBuf(msgId, 0, 8, data);
+    // also set the "Solo top bit"
+    msgId |= 0x90000000;
+
+	Serial.print(F("Sending Message ID = ")); Serial.println(msgId, HEX); 
+	Serial.print(F("Data bytes: ")); Serial.println(len); 
+	if (len > 0) {
+	    for(uint8_t i = 0; i < len; i++) util::print8BitHex(*(pData+i)); Serial.println();
+	}
+    
+	byte sndStat = can->sendMsgBuf(msgId, len, pData);
 	return (sndStat == CAN_OK);
 	}
