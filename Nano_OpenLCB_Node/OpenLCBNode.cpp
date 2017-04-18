@@ -296,7 +296,25 @@ void OpenLCBNode::processIncoming(){
 				break;
 			}
 		} else {
-			switch (msgIn.getMTI()){
+			MTI mtiIn = msgIn.getMTI(); 
+			bool addressedToMe = ((mtiIn & 0x0008) > 0) && (msgIn.getDestAliasFromData() == alias);
+			uint32_t protflags = 0;
+			Serial.print(F("Processing MTI: ")); util::print8BitHex(mtiIn); Serial.println();
+			switch (mtiIn){
+/*
+ *4.1.2 Messages Received
+Simple nodes shall receive any message specifically addressed to them, plus the following unaddressed
+global messages:
+• Verify Node ID ;
+• Verified Node ID;
+• Protocol Support Inquiry; (always addressed??)
+• Identify Consumers;
+• Identify Producers;
+• Identify Events;
+• Learn Event;
+• P/C Event Report;
+*/ 	
+			
 /*
 • Verify Node ID – because they need to reply to it;
 • Verified Node ID – because it may be the reply to their own request, and it might be used to
@@ -308,14 +326,19 @@ void OpenLCBNode::processIncoming(){
 • P/C Event Report – so they can take actions. 
  */ 				
 				case PSI:   // Protocol Support Inquiry
+				    protflags = SPSP | SNIP;
 				    msgOut.setCANid(PSR, alias);  // Respond with a Protocol Support Reply
-				    msgOut.setDataLength(2);
-				    dataBytes[0] = 0x00;
-				    dataBytes[1] = 0x00;
-				    msgOut.setData(&dataBytes[0], 2);
+				    dataBytes[0] = (byte)(senderAlias >> 8);
+	                dataBytes[1] = (byte)(senderAlias & 0xFF);
+				    dataBytes[2] = (byte)(protflags >> 16);
+				    dataBytes[3] = (byte)(protflags >> 8) & 0xFF;
+				    dataBytes[4] = (byte)(protflags & 0xFF);
+				    msgOut.setData(&dataBytes[0], 5);
 				    canInt->sendMessage(&msgOut);
 				    break;
 
+				case VNIA:  // Verify Node ID Number Addressed
+				case VNIG:  // Verify Node ID Number Global
 /*
 				Upon receipt of a directed (addressed) Verify Node ID message addressed to it, a node shall reply with
 				an unaddressed Verified Node ID message.
@@ -327,8 +350,7 @@ void OpenLCBNode::processIncoming(){
 				node will reply with an unaddressed Verified Node ID message, if and only if the receiving node's
 				Node ID matches the one received.
  */ 
-				case VNIA:  // Verify Node ID Number Addressed
-				case VNIG:  // Verify Node ID Number Global
+
 				    switch (msgIn.getDataLength()){
 						case 0:   // no data
 						    break;
@@ -337,18 +359,120 @@ void OpenLCBNode::processIncoming(){
 				                return;
 				            break;
 				        case 8:   // received an alias + node id
+				                  // just check the alias
+				            if (!addressedToMe)
+				                return;
 				            break; 
 				        default:
-				            sendOIR(0x1080, senderAlias, msgIn.getMTI());
+				            sendOIR(0x1080, senderAlias, mtiIn); // Invalid arguments. Some of the values sent in the message fall outside of the
+                                                                 // expected range, or do not match the expectations of the receiving node.
 				            return;       
 					}
 
 				    msgOut.setCANid(VNN, alias);    // respond with a Verified Node ID Number reply
 				    msgOut.setNodeidToData(nodeId);	
 					canInt->sendMessage(&msgOut);
-				    break;
+				    return;
 				
+				// Identify Consumers
+				case IC: {
+				    if (nodeId != msgIn.getNodeIdFromData())    // not one of mine
+				        return;  
+
+					byte* pDataIn  = msgIn.getPData();
+					byte* pDataOut = msgOut.getPData();
+					msgOut.setDataLength(msgIn.getDataLength());
+					msgOut.setCANid(CICV, alias);    // Consumer Identified as currently valid
+					for (uint8_t i = 0; i < msgIn.getDataLength(); i++){
+						*pDataOut++ = *pDataIn++;  
+					}	
+					canInt->sendMessage(&msgOut);							
+						   				        
+				    return;
+				}
+				// Identify Producers
+				case IP:
+				    if (nodeId != msgIn.getNodeIdFromData())    // not an event I produce
+				        return;		
+					// I don't produce events
+				    return;
+				// Identify Events
+				case IEA:
+				    break;
+//				// Learn Event
+//				case LE:
+//				    break;
+				// P/C Event Report
+				case PCER:
+				    // handle the global events
+				
+				    if (nodeId != msgIn.getNodeIdFromData())    // not one of mine
+				        return; 
+				        
+				    switch ((uint16_t)msgIn.getDataByte(6) << 8 | (uint16_t)msgIn.getDataByte(6)){
+						case 1:
+						     Serial.print(F("Received event 1"));
+						     return;
+
+						case 2:
+						     Serial.print(F("Received event 2"));
+						     return;
+						     
+						default:
+				            sendOIR(0x1080, senderAlias, mtiIn); // Invalid arguments. Some of the values sent in the message fall outside of the
+                                                                 // expected range, or do not match the expectations of the receiving node.	
+                            return;					
+						}    
+				    return;
+				
+				// Simple Node Information Request
+				case SNIIRQ:{
+				    if (!addressedToMe)
+				        return;
+				        
+				    // assumes the information fields are laid out contiguously im memory    
+				    //char &ptr = Manufacturer;
+				    //ptr = Manufacturer;
+				    uint8_t sniLength = sizeof(Manufacturer) + sizeof(ModelName) + sizeof(HardwareVersion) + sizeof(SoftwareVersion) 
+				                      + sizeof(UserName) + sizeof(UserDescription);
+				    
+				    // Send the first SNI reply message
+				    msgOut.setCANid(SNIIR, alias);
+				    dataBytes[0] = 0x10 | (byte)(senderAlias >> 8);   // indicate this is the first frame
+	                dataBytes[1] = (byte)(senderAlias & 0xFF);  
+	                dataBytes[2] = 0x04;   // version number: sending manufacturer name, node model name, node hardware version and node software version
+	                dataBytes[3] = 0x02;   // version number: sending user-provided node name, user-provided node description
+	                dataBytes[4] = Manufacturer[0]; // *(ptr++); // not checking limits - the absolute minimum length is 6 (=> all are null strings)
+	                dataBytes[5] = Manufacturer[1]; // *ptr++;
+	                dataBytes[6] = Manufacturer[2]; // *ptr++;
+	                dataBytes[7] = Manufacturer[3]; // *ptr++;
+	                msgOut.setDataLength(8);
+	                canInt->sendMessage(&msgOut);
+	                
+	                // Send out the subsequent messages (data in blocks of max 6 characters)
+	                msgOut.setCANid(SNIIR, alias);
+	                for (uint8_t cnt = 4; cnt < sniLength; cnt += 6){
+						int i;
+					    dataBytes[0] = 0x20 | (byte)(senderAlias >> 8);   // indicate this is a middle frame
+	                    dataBytes[1] = (byte)(senderAlias & 0xFF);
+	                    for (uint8_t i = 2; i < 8 & (cnt + i - 2) < sniLength; i++){
+							dataBytes[i] = Manufacturer[cnt + i - 2];
+						}
+					    if (cnt + i - 2 >= sniLength)
+					        dataBytes[0] |= 0x03; 
+					
+					    msgOut.setDataLength(i);
+	                
+	                    canInt->sendMessage(&msgOut);     	
+					} 
+				    
+				    break;
+				}
 				default: 
+				    // If the message is adressed to me, send an OIR (Not Implemented)
+				    if (addressedToMe){
+						sendOIR(0x1040, senderAlias, mtiIn);  // Not implemented
+						}
 				    // ignore the message
 				    break;    
 		    }

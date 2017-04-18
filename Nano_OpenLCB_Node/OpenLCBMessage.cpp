@@ -98,3 +98,11 @@ void OpenLCBMessage::setNodeidToData(uint64_t nodeId){
 uint64_t OpenLCBMessage::getNodeIdFromData(){
 	return (((uint64_t)data[0] << 40) | ((uint64_t)data[1] << 32) | ((uint64_t)data[2] << 24) | ((uint64_t)data[3] << 16) | ((uint64_t)data[4] << 8) | (uint64_t)data[5]);
 }
+
+uint16_t OpenLCBMessage::getDestAliasFromData(){
+	if (dataLength > 1){
+	    return ((uint16_t) data[0] & 0x0F) << 8 | (uint16_t) data[1]; 
+	} else {
+		return 0;
+	}
+};

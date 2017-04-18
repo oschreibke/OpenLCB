@@ -25,6 +25,8 @@ class OpenLCBNode {
     const char* ModelName     = "Open LCB node";
     const char* HardwareVersion  = "0.1";
     const char* SoftwareVersion  = "0.1";
+    const char* UserName         = "Test Node";
+    const char* UserDescription  = "Arduino implementation";
 
 
   public:

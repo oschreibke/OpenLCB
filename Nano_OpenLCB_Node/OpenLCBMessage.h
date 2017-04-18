@@ -147,7 +147,8 @@ class OpenLCBMessage {
     bool isControlMessage();
     void setCANid(uint16_t MTI, uint16_t alias);
     void setNodeidToData(uint64_t nodeId);
-    uint64_t getNodeIdFromData();	
+    uint64_t getNodeIdFromData();
+    uint16_t getDestAliasFromData();	
 
   private:
 //    void GenAlias();
