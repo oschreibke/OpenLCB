@@ -1,0 +1,120 @@
+// decode an CANASCII message to CAN
+// returns true when the message is ready to send
+
+#include "CANCommon.h"
+#include "CanAscii2Can.h"
+
+const char hexDigits[16] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
+boolean firstNybble = true;
+WiFiDecodeStatus decodeStatus = expect_colon;
+
+bool CanAscii2Can(uint32_t * id, CAN_message_type * messageType, uint8_t * len, uint8_t dataBuf[], char * ch){
+      int i = 0;
+      
+      switch (decodeStatus) {
+        case expect_colon:
+          // if we receive a : change the status, initialise the data stores and discard the character
+          // otherwise ignore the character - it's not what we were expecting
+          if (*ch == ':') {
+            decodeStatus = expect_msg_type;
+            *messageType = Standard;
+            *id = 0;
+            *len = 0;
+            firstNybble = true;
+            //Serial.println("Got colon");
+          }
+          break;
+
+        case (expect_msg_type):
+          // the message Type indicators are S (Standard) and X (Extended)
+          // if we receive one of these, set the message type accordingly and change the status
+          // otherwise something is wrong therefore we reset to expecting_colon
+          decodeStatus = process_identifier;  // assume a valid message type
+          switch (*ch) {
+            case 'S':
+              *messageType = Standard;
+              break;
+
+            case 'X':
+              *messageType = Extended;
+              break;
+
+            default:
+              // we shouldn't be here - reset the processor
+              decodeStatus = expect_colon;
+              break;
+          }
+          //Serial.println("Got Message type");
+          break;
+
+        case (process_identifier):
+          // read hex chars until we hit an N
+          if (*ch == 'N') {
+            decodeStatus = process_data;
+            //Serial.print("Got Identifier "); Serial.println(*id);
+            break;
+          }
+
+          // convert the identifier from Hex to Int
+          i = Hex2Int(*ch);
+          //Serial.print(ch); Serial.print(": ");Serial.println(i);
+          if (i > 15) {
+            // not a hex character => reset the processor
+            decodeStatus = expect_colon;
+            break;
+          }
+          *id = (*id << 4) + i;
+          //Serial.println(*id);
+          break;
+
+        case (process_data):
+          // process data bytes (Hex encoded) until we hit a ;
+          if (*ch == ';') {
+            // received a ; - send the message and reset the processor for the next
+            
+            decodeStatus = expect_colon;
+            return true;
+          }
+
+          if (firstNybble) {
+            dataBuf[*len] = 0x0;
+            (*len)++;
+          }
+          
+          if (*len > 8){
+			// message has too much data (max 8)  
+            decodeStatus = expect_colon;
+            break;			  
+			}
+          
+
+          firstNybble = !firstNybble;
+          i = Hex2Int(*ch);
+          if (i > 15) {
+            // not a hex character => reset the processor
+            decodeStatus = expect_colon;
+            break;
+          }
+
+          // *len contains the actual length, which is 1 greater than the index value
+          dataBuf[(*len) - 1] = (dataBuf[(*len) - 1] << 4) + i;
+          break;
+
+        default:
+          // should not be here - just reset the processor
+          decodeStatus = expect_colon;
+          break;
+      }
+	return false;
+}
+
+uint8_t Hex2Int(char ch) {
+  // convert the input character from a Hex value to Int
+  // if the input is not a valid hex character (0..9A..F), 16 will be returned and is an error value
+
+  uint8_t i = 0;
+  for (i = 0; i <= 15; i++) {
+    if (ch == hexDigits[i]) break;
+  }
+  return i;
+}
