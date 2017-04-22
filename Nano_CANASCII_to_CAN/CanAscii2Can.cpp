@@ -3,8 +3,8 @@
 
 #include "CANCommon.h"
 #include "CanAscii2Can.h"
+#include "Util.h"
 
-const char hexDigits[16] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
 boolean firstNybble = true;
 WiFiDecodeStatus decodeStatus = expect_colon;
 
@@ -51,7 +51,7 @@ bool CanAscii2Can(uint32_t * id, CAN_message_type * messageType, uint8_t * len, 
           // read hex chars until we hit an N
           if (*ch == 'N') {
             decodeStatus = process_data;
-            //Serial.print("Got Identifier "); Serial.println(*id);
+            //Serial.print("Got Identifier "); Serial.println(*id, HEX);
             break;
           }
 
@@ -64,15 +64,17 @@ bool CanAscii2Can(uint32_t * id, CAN_message_type * messageType, uint8_t * len, 
             break;
           }
           *id = (*id << 4) + i;
-          //Serial.println(*id);
+          //Serial.println("id = "); Serial.println(*id, HEX);
           break;
 
         case (process_data):
+          //Serial.print("Processdata. ch = "); Serial.println(*ch);
           // process data bytes (Hex encoded) until we hit a ;
           if (*ch == ';') {
             // received a ; - send the message and reset the processor for the next
             
             decodeStatus = expect_colon;
+            //Serial.println("Exiting CanAscii2Can (true)");
             return true;
           }
 
@@ -108,13 +110,3 @@ bool CanAscii2Can(uint32_t * id, CAN_message_type * messageType, uint8_t * len, 
 	return false;
 }
 
-uint8_t Hex2Int(char ch) {
-  // convert the input character from a Hex value to Int
-  // if the input is not a valid hex character (0..9A..F), 16 will be returned and is an error value
-
-  uint8_t i = 0;
-  for (i = 0; i <= 15; i++) {
-    if (ch == hexDigits[i]) break;
-  }
-  return i;
-}

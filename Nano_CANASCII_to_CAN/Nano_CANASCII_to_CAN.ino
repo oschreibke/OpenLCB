@@ -46,7 +46,7 @@
 #include "Can2CanAscii.h"
 
 //#define SHOWLCD
-//#define SHOWSERIAL
+#define SHOWSERIAL
 
 // Arduino SPI Pins
 //
@@ -63,6 +63,12 @@
 //#define GPIO13 13
 //#define GPIO14 14
 //#define GPIO15 15
+
+#ifdef SHOWSERIAL
+#include <SoftwareSerial.h>
+
+SoftwareSerial mySerial(5, 4); // RX, TX
+#endif
 
 #ifdef SHOWLCD
 #include <LiquidCrystal_I2C.h>
@@ -93,15 +99,15 @@ MCP_CAN CAN(10); // Set CS to pin 10
 
 // send and receive buffers for the can packets
 // CAN => received from the CAN interface; WiFi => received over WiFi
-long unsigned int CANIdentifier = 0;
-unsigned char CANDataLen = 0;
-unsigned char CANData[8]; // = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07};
+uint32_t CANIdentifier = 0;
+uint8_t CANDataLen = 0;
+uint8_t CANData[8]; // = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07};
 
-char CANAscii[21]; // array to store the ASCII-encoded message
+char CANAscii[CANASCII_SIZE]; // array to store the ASCII-encoded message
 CAN_message_type  WiFiMessageType = Standard;
-long unsigned int WiFiIdentifier = 0;
-byte WiFiDataLen = 0;
-byte WiFiData[8] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07};
+uint32_t WiFiIdentifier = 0;
+uint8_t WiFiDataLen = 0;
+uint8_t WiFiData[8] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07};
 
 char msgString[128];                        // Array to store serial string
 
@@ -116,19 +122,13 @@ char msgString[128];                        // Array to store serial string
 //  CAN.sendMsgBuf(I2C_ADDR, 0, 8, canMsg);
 //}
 
-/*
-char Int2Hex(int nybble) {
-  if (nybble >= 0 && nybble <= 15)
-    return hexDigits[nybble];
-  else
-    return '\0';
-}
-*/
+
 
 void setup() {
   Serial.begin(115200);
 #ifdef SHOWSERIAL
-  Serial.println("Starting...");
+  mySerial.begin(115200);
+  mySerial.println("Starting...");
 #endif  
 
 #ifdef SHOWLCD
@@ -148,7 +148,9 @@ void setup() {
 #ifdef SHOWLCD
     lcd.print("can init ok");
 #endif
-
+#ifdef SHOWSERIAL
+    mySerial.println("can init ok");
+#endif
     CAN.setMode(MCP_NORMAL);
 
     //attachInterrupt(CANINTPIN, MCP2515_ISR, FALLING); // start interrupt
@@ -159,7 +161,10 @@ void setup() {
   else
     lcd.print("Can init fail");
 #endif
-
+#ifdef SHOWSERIAL
+  else
+    mySerial.println("can init fail");
+#endif
 //for (int x = 0; x < 16; x++){
 //  Serial.print(hexDigits[x]); Serial.print(": "); Serial.println(Hex2Int(hexDigits[x])); 
 //}
@@ -172,53 +177,79 @@ void loop() {
   if (!digitalRead(CANINTPIN)) {
 //  if (can_msg_received) {
 #ifdef SHOWSERIAL
-	Serial.println("Message received.");
+	mySerial.println("CAN Message received.");
 #endif	  
     //can_msg_received = false;
 
     CAN.readMsgBuf(&CANIdentifier, &CANDataLen, CANData);      // Read data: len = data length, buf = data byte(s)
 
 #ifdef SHOWSERIAL
-    Serial.print("CANIdentifier: "); Serial.println(CANIdentifier, HEX);
-    Serial.print("CANDataLen: "); Serial.println(CANDataLen, HEX);
+    mySerial.print("CANIdentifier- "); mySerial.println(CANIdentifier, HEX);
+    mySerial.print("CANDataLen- "); mySerial.println(CANDataLen, HEX);
     if (CANDataLen > 0){
-        Serial.print("CANData: "); 
+        mySerial.print("CANData- "); 
         for (uint8_t i = 0; i < CANDataLen; i++){
-            sprintf(buf, "%02hhX", CANData[i]);
-            Serial.print( buf );
-			}
-        Serial.println("");
+            if (CANData[i] < 0x10){
+		        mySerial.print(F("0"));
+	    	}
+	        mySerial.print(CANData[i], HEX);	
+		}
+        mySerial.println("");
     }
 #endif       
     
     Can2CanAscii(&CANIdentifier, &CANDataLen, CANData, CANAscii);
 
-    Serial.print((String)CANAscii);               // Transmit the CAN-Ascii message to the client
+    Serial.println((String)CANAscii);               // Transmit the CAN-Ascii message to the client
       
 #ifdef SHOWLCD
       lcd.clear();
-      lcd.print("Sending to WiFi client: ");
+      lcd.print("Sending to WiFi client- ");
       lcd.println((String)CANAscii);
 #endif
 #ifdef SHOWSERIAL
-      //Serial.print("Sending to WiFi client: ");
-      //Serial.println((String)CANAscii);
-      Serial.println();
+      mySerial.print("Sending to WiFi client: ");
+      mySerial.println((String)CANAscii);
+      mySerial.println();
 #endif
     }
 
 
   // send incoming message from WiFi to CAN  (if available)
   if (Serial.available()) {
+#ifdef SHOWSERIAL
+	mySerial.println("WiFi Message received.");
+#endif
+		  
     //get data from the telnet client
     while (Serial.available()) {
       char ch = Serial.read();
+
 #ifdef SHOWLCD
       lcd.print(ch); // push it to the UART (=> Serial Monitor)
 #endif
-      //Serial.write(ch);
-      
-      if (CanAscii2Can(&WiFiIdentifier, &WiFiMessageType, &WiFiDataLen, WiFiData, &ch)){
+#ifdef SHOWSERIAL
+      mySerial.print(ch); // push it to the UART (=> Serial Monitor)
+#endif
+
+    
+     if (CanAscii2Can(&WiFiIdentifier, &WiFiMessageType, &WiFiDataLen, WiFiData, &ch)){
+#ifdef SHOWSERIAL
+        mySerial.println();
+        mySerial.print("WiFiIdentifier- "); mySerial.println(WiFiIdentifier, HEX);
+	    mySerial.print("WiFiDataLen- "); mySerial.println(WiFiDataLen, HEX);
+		  if (WiFiDataLen > 0){
+			  mySerial.print("WiFiData- "); 
+			  for (uint8_t i = 0; i < WiFiDataLen; i++){
+				  if (WiFiData[i] < 0x10){
+					  mySerial.print(F("0"));
+				  }
+				  mySerial.print(WiFiData[i], HEX);	
+		     }
+            mySerial.println("");
+         }				
+#endif		  
+		  
             byte sndStat = CAN.sendMsgBuf(WiFiIdentifier, (int) WiFiMessageType, WiFiDataLen, WiFiData);
 #ifdef SHOWLCD
             if (sndStat == CAN_OK) {
@@ -227,14 +258,16 @@ void loop() {
               lcd.println("Error Sending Message...");
             }
 #endif
-            //if (sndStat == CAN_OK) {
-            //  Serial.println("Message Sent Successfully!");
-            //} else {
-            //  Serial.println("Error Sending Message...");
-            //
-            }		  
+#ifdef SHOWSERIAL
+            if (sndStat == CAN_OK) {
+              mySerial.println("CAN Message Sent Successfully!");
+            } else {
+              mySerial.println("Error Sending CAN Message...");
+            }
+#endif            
+         }   		  
 	  }
     }
-  }
+}
 
 
