@@ -15,7 +15,7 @@ void OpenLCBMessage::setId(uint32_t newId){
 }
 
 MTI OpenLCBMessage::getMTI(){
-	return (MTI)((id & 0x07FFF000) >> 12);
+	return (MTI)((id & 0x0FFFF000) >> 12);
 }
 
 uint16_t OpenLCBMessage::getSenderAlias(){

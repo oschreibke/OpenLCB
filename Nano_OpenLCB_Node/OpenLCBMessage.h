@@ -124,9 +124,10 @@ enum protocol: uint32_t {
 
 class OpenLCBMessage {
       uint32_t id;
-      byte data[8];
       uint8_t dataLength;
-//      bool newMessage;
+      byte data[8];
+
+      byte filler[50];
       
   public:
     OpenLCBMessage(void);
@@ -139,7 +140,7 @@ class OpenLCBMessage {
     void getData(byte* dataBuf, uint8_t length);
     uint8_t getDataByte(uint8_t index);
     void setData(byte* newDataBuf, uint8_t newDataLength);
-    uint32_t* getPId();
+    uint32_t * getPId();
 	byte* getPData();
 	uint8_t * getPDataLength();
 	void initialise();

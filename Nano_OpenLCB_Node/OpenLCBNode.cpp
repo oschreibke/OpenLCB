@@ -65,10 +65,9 @@ void OpenLCBNode::setNodeId(const char* Id){
   
   genAlias();
   
-Serial.println(F("Node initialised"));
-Serial.println(strNodeId); 
+Serial.print(F("Node initialised: ")); Serial.println(strNodeId); 
 util::print64BitHex(nodeId); Serial.println();
-Serial.println(alias, HEX);
+Serial.print("alias "); Serial.println(alias, HEX);
 }
 
 // this is where the work gets done
@@ -113,7 +112,8 @@ bool OpenLCBNode::registerMe(){
    //Serial.print(alias); Serial.print(", status: "); Serial.println(status);
    switch (status){
 	   case nodeAliasNotFound:
-			msgOut.setCANid(CID1 | ((uint16_t) (nodeId >> 36)) & 0x0FFF, alias);
+			//msgOut.setId((uint32_t) CID1 << 12 | ((uint32_t) (nodeId >> 36)) & 0x0FFF);
+			msgOut.setCANid(CID1 | ((uint16_t) (nodeId >> 36) & 0x0FFF), alias);
 			msgOut.setDataLength(0);
 			Serial.print(F("CID1: ")); Serial.println(*msgOut.getPId(), HEX);
 			if (canInt->sendMessage(&msgOut)){
@@ -126,7 +126,8 @@ bool OpenLCBNode::registerMe(){
 			break;
 			
 	   case CID1received:
-			msgOut.setCANid(CID2 | ((uint16_t) (nodeId >> 24)) & 0x0FFF, alias);
+			//msgOut.setId((uint32_t)CID2 << 12 | ((uint32_t) (nodeId >> 24)) & 0x0FFF);
+			msgOut.setCANid(CID2 | ((uint16_t) (nodeId >> 24) & 0x0FFF), alias);			
 			msgOut.setDataLength(0);
 			Serial.print("CID2: "); Serial.println(*msgOut.getPId(), HEX);
 			if (canInt->sendMessage(&msgOut)){
@@ -138,7 +139,8 @@ bool OpenLCBNode::registerMe(){
 			break;
 				   
 	   case CID2received:
-			msgOut.setCANid(CID3 | ((uint16_t) (nodeId >> 12)) & 0x0FFF, alias);
+			//msgOut.setId((uint32_t)CID3 << 12 | ((uint32_t) (nodeId >> 12)) & 0x0FFF);
+			msgOut.setCANid(CID3 | ((uint16_t) (nodeId >> 12) & 0x0FFF), alias);			
 			msgOut.setDataLength(0);
 			Serial.print(F("CID3: ")); Serial.println(*msgOut.getPId(), HEX);
 			if (canInt->sendMessage(&msgOut)){
@@ -151,7 +153,8 @@ bool OpenLCBNode::registerMe(){
 			break;	   
 			
 	   case CID3received:
-			msgOut.setCANid(CID4 | ((uint16_t) nodeId) & 0x0FFF, alias);
+			//msgOut.setId((uint32_t)CID4 << 12 | ((uint32_t) nodeId & 0x0FFF));
+			msgOut.setCANid(CID4 | ((uint16_t) nodeId & 0x0FFF), alias);
 			msgOut.setDataLength(0);
 			Serial.print(F("CID4: ")); Serial.println(*msgOut.getPId(), HEX);
 			if (canInt->sendMessage(&msgOut)){
@@ -219,8 +222,11 @@ void OpenLCBNode::processIncoming(){
 	uint16_t senderAlias;
 	uint64_t senderNodeId;
 	byte dataBytes[8];
-	
+		
 	if (canInt->receiveMessage(&msgIn)){
+
+		Serial.print(F("Processing message: Id = ")); Serial.print(msgIn.getId(), HEX); Serial.print(F(", MTI = ")); Serial.println(msgIn.getMTI(), HEX);
+
 		msgId = msgIn.getId();
 		senderAlias = msgIn.getSenderAlias();
 		if (msgIn.isControlMessage()){  // Alias management
@@ -299,7 +305,7 @@ void OpenLCBNode::processIncoming(){
 			MTI mtiIn = msgIn.getMTI(); 
 			bool addressedToMe = ((mtiIn & 0x0008) > 0) && (msgIn.getDestAliasFromData() == alias);
 			uint32_t protflags = 0;
-			Serial.print(F("Processing MTI: ")); util::print8BitHex(mtiIn); Serial.println();
+			Serial.print(F("Processing MTI: ")); Serial.print(mtiIn, HEX); Serial.println();
 			switch (mtiIn){
 /*
  *4.1.2 Messages Received
@@ -350,6 +356,8 @@ global messages:
 				node will reply with an unaddressed Verified Node ID message, if and only if the receiving node's
 				Node ID matches the one received.
  */ 
+
+                    Serial.println(F("Verify Node ID"));
 
 				    switch (msgIn.getDataLength()){
 						case 0:   // no data
@@ -430,42 +438,23 @@ global messages:
 				    if (!addressedToMe)
 				        return;
 				        
-				    // assumes the information fields are laid out contiguously im memory    
-				    //char &ptr = Manufacturer;
-				    //ptr = Manufacturer;
-				    uint8_t sniLength = sizeof(Manufacturer) + sizeof(ModelName) + sizeof(HardwareVersion) + sizeof(SoftwareVersion) 
-				                      + sizeof(UserName) + sizeof(UserDescription);
-				    
-				    // Send the first SNI reply message
-				    msgOut.setCANid(SNIIR, alias);
-				    dataBytes[0] = 0x10 | (byte)(senderAlias >> 8);   // indicate this is the first frame
-	                dataBytes[1] = (byte)(senderAlias & 0xFF);  
-	                dataBytes[2] = 0x04;   // version number: sending manufacturer name, node model name, node hardware version and node software version
-	                dataBytes[3] = 0x02;   // version number: sending user-provided node name, user-provided node description
-	                dataBytes[4] = Manufacturer[0]; // *(ptr++); // not checking limits - the absolute minimum length is 6 (=> all are null strings)
-	                dataBytes[5] = Manufacturer[1]; // *ptr++;
-	                dataBytes[6] = Manufacturer[2]; // *ptr++;
-	                dataBytes[7] = Manufacturer[3]; // *ptr++;
-	                msgOut.setDataLength(8);
-	                canInt->sendMessage(&msgOut);
-	                
-	                // Send out the subsequent messages (data in blocks of max 6 characters)
-	                msgOut.setCANid(SNIIR, alias);
-	                for (uint8_t cnt = 4; cnt < sniLength; cnt += 6){
-						int i;
-					    dataBytes[0] = 0x20 | (byte)(senderAlias >> 8);   // indicate this is a middle frame
-	                    dataBytes[1] = (byte)(senderAlias & 0xFF);
-	                    for (uint8_t i = 2; i < 8 & (cnt + i - 2) < sniLength; i++){
-							dataBytes[i] = Manufacturer[cnt + i - 2];
-						}
-					    if (cnt + i - 2 >= sniLength)
-					        dataBytes[0] |= 0x03; 
-					
-					    msgOut.setDataLength(i);
-	                
-	                    canInt->sendMessage(&msgOut);     	
-					} 
-				    
+				        
+				    //Serial.println(F("Simple Node Information Request"));
+				    //Serial.println(Manufacturer);
+				    //Serial.println(ModelName);
+                    //Serial.println(HardwareVersion);
+                    //Serial.println(SoftwareVersion);
+                    //Serial.println(UserName);
+                    //Serial.println(UserDescription);
+                    
+                    sendSNIHeader(alias, senderAlias);
+                    sendSNIReply(alias, senderAlias, Manufacturer, false);
+                    sendSNIReply(alias, senderAlias, ModelName, false);
+                    sendSNIReply(alias, senderAlias, HardwareVersion, false);
+                    sendSNIReply(alias, senderAlias, SoftwareVersion, false);
+                    sendSNIReply(alias, senderAlias, UserName, false);
+                    sendSNIReply(alias, senderAlias, UserDescription, true);
+			    
 				    break;
 				}
 				default: 
@@ -494,4 +483,51 @@ bool OpenLCBNode::sendOIR(uint16_t errorCode, uint16_t senderAlias, MTI mti){
 	return canInt->sendMessage(&msgOut);	
 }					
 
+bool OpenLCBNode::sendSNIHeader(uint16_t senderAlias, uint16_t destAlias){
+	byte dataBytes[4];
+	
+	msgOut.setCANid(SNIIR, alias);
+	dataBytes[0] = (byte)(senderAlias >> 8) | 0x10;
+	dataBytes[1] = (byte)(senderAlias & 0xFF);
+    dataBytes[2] = 0x04;   // version number: sending manufacturer name, node model name, node hardware version and node software version
+    dataBytes[3] = 0x02;   // version number: sending user-provided node name, user-provided node description
+    msgOut.setData(&dataBytes[0], 4);
+	return canInt->sendMessage(&msgOut);
+	}
+
+bool OpenLCBNode::sendSNIReply(uint16_t senderAlias, uint16_t destAlias, const char infoText[], bool isLast){
+	byte dataBytes[8];
+	uint8_t pos = 0;
+	uint8_t dataLen = 2;
+	bool fail = false;
+	
+	Serial.print("infoText ("); Serial.print(strlen(infoText)); Serial.print(") "); Serial.println(infoText);
+	
+	msgOut.setCANid(SNIIR, alias);
+	dataBytes[0] = (byte)(senderAlias >> 8);
+	dataBytes[1] = (byte)(senderAlias & 0xFF);
+	
+	while(pos < strlen(infoText) +1)
+	    {
+		
+		//Serial.print(F("Character at ")); Serial.print(pos); Serial.print(F(": ")); Serial.print(infoText[pos]); Serial.print(F(" dataBytes[")); Serial.print(dataLen);	Serial.print(F("]: ")); 
+		dataBytes[dataLen++] = infoText[pos++];
+		//Serial.println((char)dataBytes[dataLen - 1]);
+		
+		if (!(isLast && pos > strlen(infoText))){
+			dataBytes[0] |= 0x30;  // intermediate frame
+			} else {
+			dataBytes[0] |= 0x20;  // last frame	
+			}
+		if (dataLen > 7 || pos > strlen(infoText)){
+			msgOut.setData(&dataBytes[0], dataLen);
+	        if (!canInt->sendMessage(&msgOut)){
+				fail = true;
+				break;
+				}
+			dataLen = 2;
+		    }
+	    }
+    return fail;
+}
 

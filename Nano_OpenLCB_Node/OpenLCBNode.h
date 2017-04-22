@@ -21,7 +21,7 @@ class OpenLCBNode {
     uint32_t waitStart;
     OpenLCBCANInterface* canInt;
     
-    const char* Manufacturer  = "Solwiz.local";
+    const char* Manufacturer  = "Solwiz.ch";
     const char* ModelName     = "Open LCB node";
     const char* HardwareVersion  = "0.1";
     const char* SoftwareVersion  = "0.1";
@@ -43,7 +43,9 @@ class OpenLCBNode {
     void processIncoming();
     bool registerMe();
  //   bool sendAMD();
-    bool sendOIR(uint16_t errorCode, uint16_t senderAlias, MTI mti);    
+    bool sendOIR(uint16_t errorCode, uint16_t senderAlias, MTI mti);  
+    bool sendSNIHeader(uint16_t senderAlias, uint16_t destAlias);
+    bool sendSNIReply(uint16_t senderAlias, uint16_t destAlias, const char InfoText[], bool isLast);  
     
 };
 
