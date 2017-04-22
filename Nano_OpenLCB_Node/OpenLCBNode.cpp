@@ -417,7 +417,7 @@ global messages:
 				    if (nodeId != msgIn.getNodeIdFromData())    // not one of mine
 				        return; 
 				        
-				    switch ((uint16_t)msgIn.getDataByte(6) << 8 | (uint16_t)msgIn.getDataByte(6)){
+				    switch ((uint16_t)msgIn.getDataByte(6) << 8 | (uint16_t)msgIn.getDataByte(7)){
 						case 1:
 						     Serial.print(F("Received event 1"));
 						     return;
@@ -425,7 +425,15 @@ global messages:
 						case 2:
 						     Serial.print(F("Received event 2"));
 						     return;
-						     
+
+						case 3:
+						     Serial.print(F("Received event 3"));
+						     return;
+
+						case 4:
+						     Serial.print(F("Received event 4"));
+						     return;
+						     						     
 						default:
 				            sendOIR(0x1080, senderAlias, mtiIn); // Invalid arguments. Some of the values sent in the message fall outside of the
                                                                  // expected range, or do not match the expectations of the receiving node.	
@@ -486,9 +494,9 @@ bool OpenLCBNode::sendOIR(uint16_t errorCode, uint16_t senderAlias, MTI mti){
 bool OpenLCBNode::sendSNIHeader(uint16_t senderAlias, uint16_t destAlias){
 	byte dataBytes[4];
 	
-	msgOut.setCANid(SNIIR, alias);
-	dataBytes[0] = (byte)(senderAlias >> 8) | 0x10;
-	dataBytes[1] = (byte)(senderAlias & 0xFF);
+	msgOut.setCANid(SNIIR, senderAlias);
+	dataBytes[0] = (byte)(destAlias >> 8) | 0x10;
+	dataBytes[1] = (byte)(destAlias & 0xFF);
     dataBytes[2] = 0x04;   // version number: sending manufacturer name, node model name, node hardware version and node software version
     dataBytes[3] = 0x02;   // version number: sending user-provided node name, user-provided node description
     msgOut.setData(&dataBytes[0], 4);
@@ -503,9 +511,9 @@ bool OpenLCBNode::sendSNIReply(uint16_t senderAlias, uint16_t destAlias, const c
 	
 	Serial.print("infoText ("); Serial.print(strlen(infoText)); Serial.print(") "); Serial.println(infoText);
 	
-	msgOut.setCANid(SNIIR, alias);
-	dataBytes[0] = (byte)(senderAlias >> 8);
-	dataBytes[1] = (byte)(senderAlias & 0xFF);
+	msgOut.setCANid(SNIIR, senderAlias);
+	dataBytes[0] = (byte)(destAlias >> 8);
+	dataBytes[1] = (byte)(destAlias & 0xFF);
 	
 	while(pos < strlen(infoText) +1)
 	    {
@@ -517,10 +525,11 @@ bool OpenLCBNode::sendSNIReply(uint16_t senderAlias, uint16_t destAlias, const c
 		if (!(isLast && pos > strlen(infoText))){
 			dataBytes[0] |= 0x30;  // intermediate frame
 			} else {
-			dataBytes[0] |= 0x20;  // last frame	
+			dataBytes[0] &= ~0x10;  // last frame	
 			}
 		if (dataLen > 7 || pos > strlen(infoText)){
 			msgOut.setData(&dataBytes[0], dataLen);
+			delay(50);   // add delay otherwise messages are not sent in sequence
 	        if (!canInt->sendMessage(&msgOut)){
 				fail = true;
 				break;
