@@ -31,7 +31,7 @@ const IPAddress SUBNET(255, 255, 255, 0);
 const IPAddress DNS(192, 168, 0, 32);
 //const IPAddress DNS2(192, 168, 0, 32);
 
-WiFiServer server(23);
+WiFiServer server(23);  //listen to port 23
 WiFiClient serverClients[MAX_SRV_CLIENTS];
 
 void setup() {
