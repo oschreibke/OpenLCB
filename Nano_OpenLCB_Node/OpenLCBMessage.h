@@ -1,3 +1,29 @@
+/*
+ * OpenLCBMessage.h
+ * 
+ * Copyright 2017 Otto Schreibke <oschreibke@gmail.com>
+ * 
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ * MA 02110-1301, USA.
+ * 
+ * The license can be found at https://www.gnu.org/licenses/gpl-3.0.txt
+ * 
+ * 
+ */
+
+
 #ifndef OpenLCBMessageIncluded
 #define OpenLCBMessageIncluded
 
@@ -124,6 +150,7 @@ enum protocol: uint32_t {
 
 class OpenLCBMessage {
       uint32_t id;
+      uint8_t ext;
       uint8_t dataLength;
       byte data[8];
 
@@ -141,6 +168,7 @@ class OpenLCBMessage {
     uint8_t getDataByte(uint8_t index);
     void setData(byte* newDataBuf, uint8_t newDataLength);
     uint32_t * getPId();
+    uint8_t * getPExt();
 	byte* getPData();
 	uint8_t * getPDataLength();
 	void initialise();
@@ -149,6 +177,7 @@ class OpenLCBMessage {
     void setCANid(uint16_t MTI, uint16_t alias);
     void setNodeidToData(uint64_t nodeId);
     uint64_t getNodeIdFromData();
+    uint64_t getEventIdFromData();
     uint16_t getDestAliasFromData();	
 
   private:
