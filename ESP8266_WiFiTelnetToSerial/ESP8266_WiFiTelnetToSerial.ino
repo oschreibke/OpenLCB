@@ -18,13 +18,25 @@
   License along with this library; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
+
+/*
+  This is a derivative of the example code described above
+  The main changes relate to the debugging messages included and the use of Serial instead of Serial1,
+  the functionality is essentially unchanged.
+  
+  
+  Otto Schreibke 2017
+*/
+
 #include <ESP8266WiFi.h>
 //#define SHOWMESSAGES
 
 //how many clients should be able to telnet to this ESP8266
 #define MAX_SRV_CLIENTS 1
-const char* ssid = "Schreibke";
-const char* password = "Merlin_rules_ok";
+
+// fill your ssid and password in the next two lines and uncomment them
+//const char* ssid = "<fill me>";
+//const char* password = "<fill me>";
 const IPAddress SERVERIP(192, 168, 0, 112);
 const IPAddress GATEWAY(192, 168, 0, 1);
 const IPAddress SUBNET(255, 255, 255, 0);
