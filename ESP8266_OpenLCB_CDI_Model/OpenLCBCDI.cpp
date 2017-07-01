@@ -28,8 +28,12 @@
 #define Printitem(x) {do {Serial.print(F(#x ": ")); Serial.println(x);} while (0);}
 #define PrintXML(x) {do {strcpy(buf, x); Serial.print(buf);} while (0);}
 
+
 void OpenLCBCDI::ShowItemLengths() {
+	Printitem(strlen(cdiXml));
+/*
     char buf[64];
+
 
 
     Printitem(strlen(cdiTagStart));
@@ -59,8 +63,10 @@ void OpenLCBCDI::ShowItemLengths() {
     Printitem(strlen(cdiConfiguration));
     Printitem(strlen(cdiSegmentEnd));
     Printitem(strlen(cdiEnd));
+*/
 }
 
+/*
 void OpenLCBCDI::AssembleXML(){
 	char buf [64];
 	
@@ -90,3 +96,4 @@ void OpenLCBCDI::AssembleXML(){
     PrintXML(cdiSegmentEnd);
     PrintXML(cdiEnd);	
 	}
+*/

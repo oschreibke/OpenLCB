@@ -122,7 +122,7 @@ NodeStatus ns = uninitialised;
 CIDSent cidSent = noneSent;
 
 bool sendCDI = false;
-uint8_t sendCDIStep = 0;
+//uint8_t sendCDIStep = 0;
 bool waitForDatagramACK = false;
 uint32_t addressOffset = 0;
 
@@ -151,7 +151,7 @@ void setup() {
     OpenLCBCDI cdi;
 
     cdi.ShowItemLengths();
-    cdi.AssembleXML();
+    //cdi.AssembleXML();
 
 
 }
@@ -388,10 +388,12 @@ void loop() {
 
                             if (msgIn.getDataByte(1) == 0x43) {
                                 // its a cdi request
-                                sendCDI = true;
-                                sendCDIStep = 0;
-                                waitForDatagramACK = false;
+                                SendCDIDatagram(senderAlias, alias,
+                                                ((uint32_t) msgIn.getDataByte(2) << 24) + ((uint32_t) msgIn.getDataByte(3) << 16) + ((uint32_t) msgIn.getDataByte(4) << 8) + ((uint32_t) msgIn.getDataByte(5)),
+                                                (uint8_t) msgIn.getDataByte(6));
+
                             }
+                            break;
                         }
                         break;
 
@@ -400,6 +402,8 @@ void loop() {
                         break;
                     }
                 }
+                
+                /*
                 if (sendCDI && ! waitForDatagramACK) {
                     switch (sendCDIStep) {
                     case 0:
@@ -519,6 +523,7 @@ void loop() {
                     }
                     sendCDIStep++;
                 }
+                */
             }
         }
     }
@@ -712,24 +717,27 @@ bool sendSNIUserReply(uint16_t senderAlias, uint16_t destAlias, const char userV
     return fail;
 }
 
-void SendCDIDatagram(const char* text, uint16_t destAlias, uint16_t senderAlias, uint32_t * address) {
+void SendCDIDatagram(const uint16_t destAlias, uint16_t senderAlias, uint32_t address, uint8_t length) {
     byte buf[6];
     
     msgOut.setCANid(0xB000 + destAlias, senderAlias);
     buf[0] = 0x20;
     buf[1] = 0x53; // address space FF
-    buf[2] = (byte)(*address >> 24);
-    buf[3] = (byte)((*address >> 16) & 0xFF);
-    buf[4] = (byte)((*address >> 8) & 0xFF);
-    buf[5] = (byte)(*address & 0xFF);
+    buf[2] = (byte)(address >> 24);
+    buf[3] = (byte)((address >> 16) & 0xFF);
+    buf[4] = (byte)((address >> 8) & 0xFF);
+    buf[5] = (byte)(address & 0xFF);
     msgOut.setData(&buf[0], 6);
     SendMessage();
-    for (int i = 0; i < strlen(text); i+=8) {
-        msgOut.setCANid((i < (strlen(text) - 8)? 0xC000 : 0xD000) + destAlias, senderAlias);
-        msgOut.setData((byte*)(text+i), (strlen(text) - i) >= 8 ? 8 : strlen(text) - i );
+    if (address + length > strlen(cdiXml) + 1) {
+        length = strlen(cdiXml) + 1 - address; // include the terminating null
+    }
+
+    for (int i = 0; i < length; i+=8) {
+        msgOut.setCANid((i < (length - 8)? 0xC000 : 0xD000) + destAlias, senderAlias);
+        msgOut.setData((byte*)(&cdiXml[address + i]), (length - i) >= 8 ? 8 : length - i );
+
         SendMessage();
-        if (i> 64) break;
     }
     waitForDatagramACK = true;
-    *address += strlen(text);
 }
