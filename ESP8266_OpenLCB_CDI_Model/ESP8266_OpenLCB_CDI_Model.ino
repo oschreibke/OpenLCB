@@ -180,7 +180,7 @@ void setup() {
     OpenLCBCDI cdi;
 
     memset(&eed, 0x00, sizeof(EEPROM_Data));
-    
+
     eed.header.serial = 0xFFFF;
     strcpy((char *)&eed.header.userName, "my first Node");
     strcpy((char *)&eed.header.userDescription, "first node for cdi");
@@ -413,23 +413,23 @@ void loop() {
                             if (msgIn.getDataByte(1) == 0x40) {
                                 switch (msgIn.getDataByte(6)) {
                                 case 0xFB:  // user descriptions
-                                        //Serial.print("Sending user data, length ") Serial.println(sizeof(eed.header.userName) + sizeof(eed.header.userDescription));
-                                        SendDatagram(senderAlias, alias, &msgIn, eed.header.userName, sizeof(eed.header.userName) + sizeof(eed.header.userDescription)); 
-                                        break;
-                                    }
+                                    //Serial.print("Sending user data, length ") Serial.println(sizeof(eed.header.userName) + sizeof(eed.header.userDescription));
+                                    SendDatagram(senderAlias, alias, &msgIn, eed.header.userName, sizeof(eed.header.userName) + sizeof(eed.header.userDescription));
+                                    break;
                                 }
-                            
+                            }
+
                             if (msgIn.getDataByte(1) == 0x41) {
-								// it's a request for space 0xFD - configuration Data
-								SendDatagram(senderAlias, alias, &msgIn, (const char *) &eed.event[0], sizeof(EEPROM_Data) - sizeof(eed.header));
-								}
+                                // it's a request for space 0xFD - configuration Data
+                                SendDatagram(senderAlias, alias, &msgIn, (const char *) &eed.event[0], sizeof(EEPROM_Data) - sizeof(eed.header));
+                            }
                             if (msgIn.getDataByte(1) == 0x43) {
                                 // its a cdi request
                                 SendDatagram(senderAlias, alias, &msgIn, cdiXml, strlen(cdiXml) + 1);
-                                             //((uint32_t) msgIn.getDataByte(2) << 24) + ((uint32_t) msgIn.getDataByte(3) << 16) + ((uint32_t) msgIn.getDataByte(4) << 8) + ((uint32_t) msgIn.getDataByte(5)),
-                                             //(uint8_t) msgIn.getDataByte(6));
+                                //((uint32_t) msgIn.getDataByte(2) << 24) + ((uint32_t) msgIn.getDataByte(3) << 16) + ((uint32_t) msgIn.getDataByte(4) << 8) + ((uint32_t) msgIn.getDataByte(5)),
+                                //(uint8_t) msgIn.getDataByte(6));
 
-                                }
+                            }
                             break;
                         }
                         break;
@@ -441,22 +441,45 @@ void loop() {
 
                     case 0xD123:
                         ReceiveDatagram(&msgIn, &datagramBuffer[0], &datagramPtr);
-                        // if this is configuration, we need to assemble the delivered data
-                        //switch(datagramBuffer[0]) {
-                        //case 0x20:
-                            //switch(datagramBuffer[6]) {
-                            //case 0xFB:
+                        SendDROK(senderAlias, alias, true);
+                        Serial.print("Datagram Buffer: "); for(int i = 0; i < 8; i++) {
+							if (datagramBuffer[i] < 0x10) Serial.print("0");
+							Serial.print(datagramBuffer[i], HEX); Serial.print(" ");
+							 }
+							 Serial.println();
+                        // is this configuration?
+                        switch(datagramBuffer[0]) {
+                        case 0x20: {
+                            uint32_t errorCode = 0x0000;
+                            switch(datagramBuffer[1]) {
+                            case 0x01:
+                                // write to config space FD (configuration Data)
+                                addressOffset = (((((uint32_t)datagramBuffer[2] << 8) + (uint32_t)datagramBuffer[3] << 8) + (uint32_t)datagramBuffer[4] << 8) + (uint32_t)datagramBuffer[5]);
+                                if (addressOffset + datagramPtr <= sizeof(EEPROM_Data)- sizeof(eed.header)) {
+                                    memcpy(&eed.event[0], &datagramBuffer[6], datagramPtr);
+                                    errorCode = 0x0;
+                                } else {
+                                    errorCode = 0x1080; // out of range
+                                }
+                                SendWriteReply(senderAlias, alias, &datagramBuffer[0], errorCode);
+                                break;
+                                
+                                //case 0x02:
+                                // write to config space FE (configuration Data)
+                                //break:
+                                //case 0xFB:
                                 //if (datagramBuffer[5] == 0x00) {
-                                    //strcpy(UserName, (const char*)&datagramBuffer[7]);
+                                //strcpy(UserName, (const char*)&datagramBuffer[7]);
                                 //} else {
-                                    //strcpy(UserDescription, (const char*)&datagramBuffer[7]);
+                                //strcpy(UserDescription, (const char*)&datagramBuffer[7]);
                                 //}
-                            //}
-                            //SendDROK(alias, senderAlias, false);
-                            //break;
-                        //}
-                        break;
-
+                                //}
+                                //SendDROK(alias, senderAlias, false);
+                                //break;
+                            }
+                            break;
+                        }
+                        }
 
                     case DROK:
                         if (waitForDatagramACK) waitForDatagramACK = false;
@@ -673,22 +696,22 @@ bool sendSNIUserReply(uint16_t senderAlias, uint16_t destAlias, const char userV
 }
 
 void SendDatagram(const uint16_t destAlias, uint16_t senderAlias, OpenLCBMessage * msg, const char * data, uint16_t dataLength) {
-	uint8_t lenPos = (msg->getDataByte(1) == 0x40)? 7:6;
+    uint8_t lenPos = (msg->getDataByte(1) == 0x40)? 7:6;
     uint32_t address = ((uint32_t) msg->getDataByte(2) << 24) + ((uint32_t) msg->getDataByte(3) << 16) + ((uint32_t) msg->getDataByte(4) << 8) + ((uint32_t) msg->getDataByte(5));
     uint8_t length = (uint8_t) msg->getDataByte(lenPos);
-    
+
     // copy the request bytes
     //msgOut.setCANid(((length <= dataLength + 1 - 6)?0xB000:0xA000) + destAlias, senderAlias);
     msgOut.setCANid(0xB000 + destAlias, senderAlias);
-//    buf[0] = 0x20;
-//    buf[1] = 0x53; // address space FF
-//    buf[2] = (byte)(address >> 24);
-//    buf[3] = (byte)((address >> 16) & 0xFF);
-//    buf[4] = (byte)((address >> 8) & 0xFF);
-//    buf[5] = (byte)(address & 0xFF);
+    //    buf[0] = 0x20;
+    //    buf[1] = 0x53; // address space FF
+    //    buf[2] = (byte)(address >> 24);
+    //    buf[3] = (byte)((address >> 16) & 0xFF);
+    //    buf[4] = (byte)((address >> 8) & 0xFF);
+    //    buf[5] = (byte)(address & 0xFF);
     msgOut.setData(msg->getPData(), msg->getDataLength() - 1);  // retrieve as many data bytes as we were sent
     * (msgOut.getPData() + 1) = msg->getDataByte(1) + 0x10;
-    
+
     SendMessage();
 
     if (address + length > dataLength + 1) {
@@ -704,15 +727,31 @@ void SendDatagram(const uint16_t destAlias, uint16_t senderAlias, OpenLCBMessage
     waitForDatagramACK = true;
 }
 
+void SendWriteReply(const uint16_t destAlias, uint16_t senderAlias, byte * buf, uint16_t errorCode) {
+    uint8_t dataPos = (*(buf+1) == 0x10)? 7:6;
+    msgOut.setCANid(0xA000 + destAlias, senderAlias);
+    msgOut.setData(buf, dataPos);  // retrieve as many data bytes as we were sent
+    if (errorCode != 0) {
+        * (msgOut.getPData() + 1) = *buf+1 + 0x08;
+        * (msgOut.getPData() + dataPos) = (byte)errorCode >> 8;
+        * (msgOut.getPData() + dataPos + 1) = (byte)errorCode & 0xFF;
+        msgOut.setDataLength(dataPos + 1);
+    }
+
+    SendMessage();
+
+}
 
 void ReceiveDatagram(OpenLCBMessage* m, byte* buffer, uint8_t * ptr) {
     uint8_t dataLength = 0;
+
+    Serial.print("ptr: "); Serial.println(*ptr);
 
     if (m->getMTI() == 0xB123) {
         memset(buffer, '\0', 72);
         *ptr = 0;
     }
 
-    m->getData(buffer + datagramPtr, dataLength);
+    m->getData(buffer + *ptr, &dataLength);
     *ptr += dataLength;
 }
