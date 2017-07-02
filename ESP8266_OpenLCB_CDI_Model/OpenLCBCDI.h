@@ -64,9 +64,6 @@ const char Manufacturer[] = "O Schreibke";
 const char ModelName[] = "Test Node";
 const char HardwareVersion[] = "0.1";
 const char SoftwareVersion[] = "0.1";
-const char UserName[] = "my first Node";
-const char UserDescription[] = "first node for cdi"; 
-
 
 const  char cdiXml[] = "<?xml version=\"1.0\"?>\n"
                       "<cdi xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:noNamespaceSchemaLocation=\"http://openlcb.org/schema/cdi/1/1/cdi.xsd\">\n"
@@ -81,14 +78,18 @@ const  char cdiXml[] = "<?xml version=\"1.0\"?>\n"
                       // space 253 (0xFD) = configuration  
                       "<segment space=\"253\">"
                       "<group replication=\"20\">"
-                      "<name>channels</name><description>Each channel is one entry in the event table.</description><repname>Channel</repname>"
-                      "<group><name>Decoder</name>"
+                      "<name>Events</name><description>Each tab is one entry in the event table.</description><repname>Event</repname>"
+                      "<group><name>Event</name>"
+                      "<eventid><name>Send command</name>"
+                      "<description>When this event arrives, command will be sent to the selected i2c device or pin.</description>"
+                      "</eventid>"
+                      "<string size=\"32\"><name>Description</name></string>"
                       "<int size=\"1\"><name>Decoder type</name><default>1</default>"
                       "<map>"
                       "<relation><property>1</property><value>I2C output</value></relation>"
-                      "<relation><property>2</property><value>Pin Output</value></relation>"
-                      "<relation><property>3</property><value>I2C Sensor</value></relation>"
-                      "<relation><property>4</property><value>Pin Sensor</value></relation>"
+                      "<relation><property>2</property><value>I2C input</value></relation>"
+                      "<relation><property>3</property><value>Pin output</value></relation>"
+                      "<relation><property>4</property><value>Pin input</value></relation>"
                       "</map></int>"
                       "<int size=\"1\"><name>I2C Address</name><min>8</min><max>127</max></int>"
                       "<int size=\"1\"><name>Command</name><min>0</min><max>255</max></int>"

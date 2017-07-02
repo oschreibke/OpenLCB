@@ -74,6 +74,30 @@ Parts from
 #include "Util.h"
 
 
+
+struct OpenLCBEEPROMHeader {
+    uint16_t  serial;
+    char      userName[63];
+    char      userDescription[64];
+    uint8_t  events; // maximum 20
+};
+
+enum EVENTTYPE:uint8_t {I2COutput, I2CInput, pinOutput, pinInput};
+
+struct OpenLCBEvent {
+    uint64_t eventId;
+    EVENTTYPE eventType;
+    uint8_t  address;
+    uint8_t  eventValue;
+    char     eventName[33];
+};
+
+// build the data in RAM
+struct EEPROM_Data {
+    OpenLCBEEPROMHeader header;
+    OpenLCBEvent event[20];
+};
+
 const uint64_t nodeId = 0x0501010131FFULL;
 const uint16_t alias = 0x123;
 
@@ -131,6 +155,11 @@ OpenLCBMessage msgOut;
 
 uint16_t senderAlias = 0;
 
+byte datagramBuffer[72];
+uint8_t datagramPtr = 0;
+
+EEPROM_Data eed;
+
 void setup() {
     // start the uart
     Serial.begin(115200);
@@ -149,6 +178,12 @@ void setup() {
     }
 
     OpenLCBCDI cdi;
+
+    memset(&eed, 0x00, sizeof(EEPROM_Data));
+    
+    eed.header.serial = 0xFFFF;
+    strcpy((char *)&eed.header.userName, "my first Node");
+    strcpy((char *)&eed.header.userDescription, "first node for cdi");
 
     cdi.ShowItemLengths();
     //cdi.AssembleXML();
@@ -369,161 +404,65 @@ void loop() {
                         SendMessage();
                         break;
 
+                    // datagrams
                     case 0xA123:
                         switch (msgIn.getDataByte(0)) {
                         case 0x20:
                             // send acknowlegment
-                            msgOut.setCANid(DROK, alias);
-                            dataBytes[0] = (byte)(senderAlias >> 8);
-                            dataBytes[1] = (byte)(senderAlias & 0xFF);
-                            dataBytes[2] = 0x80;  // set reply pending
-                            dataBytes[3] = '\0';
-                            dataBytes[4] = '\0';
-                            dataBytes[5] = '\0';
-                            dataBytes[6] = '\0';
-                            dataBytes[7] = '\0';
-                            msgOut.setData(&dataBytes[0], 8);
-                            SendMessage();
-                            // send datagrams (wait for ack for each)
-
+                            SendDROK(senderAlias, alias, true);
+                            if (msgIn.getDataByte(1) == 0x40) {
+                                switch (msgIn.getDataByte(6)) {
+                                case 0xFB:  // user descriptions
+                                        //Serial.print("Sending user data, length ") Serial.println(sizeof(eed.header.userName) + sizeof(eed.header.userDescription));
+                                        SendDatagram(senderAlias, alias, &msgIn, eed.header.userName, sizeof(eed.header.userName) + sizeof(eed.header.userDescription)); 
+                                        break;
+                                    }
+                                }
+                            
+                            if (msgIn.getDataByte(1) == 0x41) {
+								// it's a request for space 0xFD - configuration Data
+								SendDatagram(senderAlias, alias, &msgIn, (const char *) &eed.event[0], sizeof(EEPROM_Data) - sizeof(eed.header));
+								}
                             if (msgIn.getDataByte(1) == 0x43) {
                                 // its a cdi request
-                                SendCDIDatagram(senderAlias, alias,
-                                                ((uint32_t) msgIn.getDataByte(2) << 24) + ((uint32_t) msgIn.getDataByte(3) << 16) + ((uint32_t) msgIn.getDataByte(4) << 8) + ((uint32_t) msgIn.getDataByte(5)),
-                                                (uint8_t) msgIn.getDataByte(6));
+                                SendDatagram(senderAlias, alias, &msgIn, cdiXml, strlen(cdiXml) + 1);
+                                             //((uint32_t) msgIn.getDataByte(2) << 24) + ((uint32_t) msgIn.getDataByte(3) << 16) + ((uint32_t) msgIn.getDataByte(4) << 8) + ((uint32_t) msgIn.getDataByte(5)),
+                                             //(uint8_t) msgIn.getDataByte(6));
 
-                            }
+                                }
                             break;
                         }
                         break;
+
+                    case 0xB123:
+                    case 0xC123:
+                        ReceiveDatagram(&msgIn, &datagramBuffer[0], &datagramPtr);
+                        break;
+
+                    case 0xD123:
+                        ReceiveDatagram(&msgIn, &datagramBuffer[0], &datagramPtr);
+                        // if this is configuration, we need to assemble the delivered data
+                        //switch(datagramBuffer[0]) {
+                        //case 0x20:
+                            //switch(datagramBuffer[6]) {
+                            //case 0xFB:
+                                //if (datagramBuffer[5] == 0x00) {
+                                    //strcpy(UserName, (const char*)&datagramBuffer[7]);
+                                //} else {
+                                    //strcpy(UserDescription, (const char*)&datagramBuffer[7]);
+                                //}
+                            //}
+                            //SendDROK(alias, senderAlias, false);
+                            //break;
+                        //}
+                        break;
+
 
                     case DROK:
                         if (waitForDatagramACK) waitForDatagramACK = false;
                         break;
                     }
                 }
-                
-                /*
-                if (sendCDI && ! waitForDatagramACK) {
-                    switch (sendCDIStep) {
-                    case 0:
-                        addressOffset = 0;
-                        SendCDIDatagram(cdiXmlHeader, senderAlias, alias, &addressOffset);
-                        break;
-
-                    case 1:
-
-                        SendCDIDatagram(cdiStart, senderAlias, alias, &addressOffset);
-                        break;
-
-                    case 2:
-                        SendCDIDatagram(cdiStart2, senderAlias, alias, &addressOffset);
-                        break;
-
-                    case 3:
-                        SendCDIDatagram(cdiStart3, senderAlias, alias, &addressOffset);
-                        break;
-
-                    case 4:
-                        SendCDIDatagram(cdiTagIdentification1, senderAlias, alias, &addressOffset);
-                        break;
-
-                    case 5:
-                        SendCDIDatagram(Manufacturer, senderAlias, alias, &addressOffset);
-                        break;
-
-                    case 6:
-                        SendCDIDatagram(cdiTagIdentification2, senderAlias, alias, &addressOffset);
-                        break;
-
-                    case 7:
-                        SendCDIDatagram(ModelName, senderAlias, alias, &addressOffset);
-                        break;
-
-                    case 8:
-                        SendCDIDatagram(cdiTagIdentification3, senderAlias, alias, &addressOffset);
-                        break;
-
-                    case 9:
-                        SendCDIDatagram(HardwareVersion, senderAlias, alias, &addressOffset);
-                        break;
-
-                    case 10:
-                        SendCDIDatagram(cdiTagIdentification4, senderAlias, alias, &addressOffset);
-                        break;
-
-                    case 11:
-                        SendCDIDatagram(cdiAdci, senderAlias, alias, &addressOffset);
-                        break;
-
-                    case 12:
-                        //space 251 (0xFB) = User Info
-                        SendCDIDatagram(cdiUserInfo1, senderAlias, alias, &addressOffset);
-                        break;
-
-                    case 13:
-                        SendCDIDatagram(cdiUserInfo2, senderAlias, alias, &addressOffset);
-                        break;
-
-                    case 14:
-                        SendCDIDatagram(cdiUserInfo3, senderAlias, alias, &addressOffset);
-                        break;
-
-                    case 15:
-                        SendCDIDatagram(cdiUserInfo4, senderAlias, alias, &addressOffset);
-                        break;
-
-                    case 16:
-                        SendCDIDatagram(cdiUserInfo5, senderAlias, alias, &addressOffset);
-                        break;
-
-                    case 17:
-                        SendCDIDatagram(cdiUserInfo6, senderAlias, alias, &addressOffset);
-                        break;
-
-                    case 18:
-                        // space 253 (0xFD) = configuration
-                        SendCDIDatagram(cdiSegment253, senderAlias, alias, &addressOffset);
-                        break;
-
-                    case 19:
-                        SendCDIDatagram(cdiConfiguration, senderAlias, alias, &addressOffset);
-                        break;
-
-                    case 20:
-                        SendCDIDatagram(cdiSegmentEnd, senderAlias, alias, &addressOffset);
-                        break;
-
-                    case 21:
-                        SendCDIDatagram(cdiEnd, senderAlias, alias, &addressOffset);
-                        break;
-
-                    case 22:
-                        // send the terminating null
-                        msgOut.setCANid(0xB000 + senderAlias, alias);
-                        msgOut.setData((byte*)"\x20\x53\0\0\0\0\0", 7);
-                        dataBytes[0] = 0x20;
-                        dataBytes[1] = 0x53;
-                        dataBytes[2] = (byte)(addressOffset >> 24);
-                        dataBytes[3] = (byte)((addressOffset >> 16) & 0xFF);
-                        dataBytes[4] = (byte)((addressOffset >> 8) & 0xFF);
-                        dataBytes[5] = (byte)(addressOffset & 0xFF);
-                        msgOut.setData(&dataBytes[0], 7);
-                        SendMessage();
-
-                        sendCDI = false; // we're done
-
-                        waitForDatagramACK = true;
-
-                        //SendCDIDatagram(SoftwareVersion[] = "0.1";
-
-                        //SendCDIDatagram(UserName[] = "my first Node";
-                        //SendCDIDatagram(UserDescription[] = "first node for cdi";
-                        break;
-                    }
-                    sendCDIStep++;
-                }
-                */
             }
         }
     }
@@ -602,6 +541,22 @@ bool SendMessage() {
     yield();
 }
 
+bool SendDROK(uint16_t senderAlias, uint16_t destAlias, bool pending) {
+    byte dataBytes[8];
+
+    msgOut.setCANid(DROK, destAlias);
+    dataBytes[0] = (byte)(senderAlias >> 8);
+    dataBytes[1] = (byte)(senderAlias & 0xFF);
+    dataBytes[2] = (!pending) ? 0x0 : 0x80;  // set reply pending if requested
+    dataBytes[3] = '\0';
+    dataBytes[4] = '\0';
+    dataBytes[5] = '\0';
+    dataBytes[6] = '\0';
+    dataBytes[7] = '\0';
+    msgOut.setData(&dataBytes[0], 8);
+    SendMessage();
+}
+
 bool sendSNIHeader(uint16_t senderAlias, uint16_t destAlias) {
     byte dataBytes[3];
 
@@ -672,13 +627,13 @@ bool sendSNIUserReply(uint16_t senderAlias, uint16_t destAlias, const char userV
     // User Name
     case 'N':
         //readUserNameFromEEProm(infoText);
-        strcpy(infoText, UserName);
+        strcpy(infoText, eed.header.userName);
         break;
 
     // User Description
     case 'D':
         //readUserDescriptionFromEEProm(infoText);
-        strcpy(infoText, UserDescription);
+        strcpy(infoText, eed.header.userDescription);
         break;
 
     default:
@@ -717,27 +672,47 @@ bool sendSNIUserReply(uint16_t senderAlias, uint16_t destAlias, const char userV
     return fail;
 }
 
-void SendCDIDatagram(const uint16_t destAlias, uint16_t senderAlias, uint32_t address, uint8_t length) {
-    byte buf[6];
+void SendDatagram(const uint16_t destAlias, uint16_t senderAlias, OpenLCBMessage * msg, const char * data, uint16_t dataLength) {
+	uint8_t lenPos = (msg->getDataByte(1) == 0x40)? 7:6;
+    uint32_t address = ((uint32_t) msg->getDataByte(2) << 24) + ((uint32_t) msg->getDataByte(3) << 16) + ((uint32_t) msg->getDataByte(4) << 8) + ((uint32_t) msg->getDataByte(5));
+    uint8_t length = (uint8_t) msg->getDataByte(lenPos);
     
+    // copy the request bytes
+    //msgOut.setCANid(((length <= dataLength + 1 - 6)?0xB000:0xA000) + destAlias, senderAlias);
     msgOut.setCANid(0xB000 + destAlias, senderAlias);
-    buf[0] = 0x20;
-    buf[1] = 0x53; // address space FF
-    buf[2] = (byte)(address >> 24);
-    buf[3] = (byte)((address >> 16) & 0xFF);
-    buf[4] = (byte)((address >> 8) & 0xFF);
-    buf[5] = (byte)(address & 0xFF);
-    msgOut.setData(&buf[0], 6);
+//    buf[0] = 0x20;
+//    buf[1] = 0x53; // address space FF
+//    buf[2] = (byte)(address >> 24);
+//    buf[3] = (byte)((address >> 16) & 0xFF);
+//    buf[4] = (byte)((address >> 8) & 0xFF);
+//    buf[5] = (byte)(address & 0xFF);
+    msgOut.setData(msg->getPData(), msg->getDataLength() - 1);  // retrieve as many data bytes as we were sent
+    * (msgOut.getPData() + 1) = msg->getDataByte(1) + 0x10;
+    
     SendMessage();
-    if (address + length > strlen(cdiXml) + 1) {
-        length = strlen(cdiXml) + 1 - address; // include the terminating null
+
+    if (address + length > dataLength + 1) {
+        length = dataLength + 1 - address; // include the terminating null
     }
 
     for (int i = 0; i < length; i+=8) {
         msgOut.setCANid((i < (length - 8)? 0xC000 : 0xD000) + destAlias, senderAlias);
-        msgOut.setData((byte*)(&cdiXml[address + i]), (length - i) >= 8 ? 8 : length - i );
+        msgOut.setData((byte*)(&data[address + i]), (length - i) >= 8 ? 8 : length - i );
 
         SendMessage();
     }
     waitForDatagramACK = true;
+}
+
+
+void ReceiveDatagram(OpenLCBMessage* m, byte* buffer, uint8_t * ptr) {
+    uint8_t dataLength = 0;
+
+    if (m->getMTI() == 0xB123) {
+        memset(buffer, '\0', 72);
+        *ptr = 0;
+    }
+
+    m->getData(buffer + datagramPtr, dataLength);
+    *ptr += dataLength;
 }
