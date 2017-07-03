@@ -214,62 +214,7 @@ void loop() {
     switch (ns) {
     case uninitialised:
         switch(cidSent) {
-        /*
-        //case none:
-        //msgOut.setCANid(CID1 | ((uint16_t) (nodeId >> 36) & 0x0FFF), alias);
-        //msgOut.setDataLength(0);
-        //Serial.print(F("CID1: "));
-        //Serial.println(*msgOut.getPId(), HEX);
-        //if (canInt->sendMessage(&msgOut)) {
-        //registry.add(alias, nodeId, CID1received);
-        //} else {
-        //fail = true;
-        //break;  // bail if we couldn't send the message
-        //}
-        //break;
-        //case CID1:
-        //msgOut.setCANid(CID2 | ((uint16_t) (nodeId >> 24) & 0x0FFF), alias);
-        //msgOut.setDataLength(0);
-        //Serial.print("CID2: ");
-        //Serial.println(*msgOut.getPId(), HEX);
-        //if (canInt->sendMessage(&msgOut)) {
-        //registry.setStatus(alias, CID2received);
-        //} else {
-        //registry.remove(alias);                // start again if we couldn't send the message
-        //fail = true;
-        //}
-        //break;
-        //case CID2:
-        //msgOut.setCANid(CID3 | ((uint16_t) (nodeId >> 12) & 0x0FFF), alias);
-        //msgOut.setDataLength(0);
-        //Serial.print(F("CID3: "));
-        //Serial.println(*msgOut.getPId(), HEX);
-        //if (canInt->sendMessage(&msgOut)) {
-        //registry.setStatus(alias, CID3received);
-        //} else {
-        //registry.remove(alias);                // start again if we couldn't send the message
-        //fail = true;
-        //}
-
-        //break;
-        //case CID3:
-        ////msgOut.setId((uint32_t)CID4 << 12 | ((uint32_t) nodeId & 0x0FFF));
-        //msgOut.setCANid(CID4 | ((uint16_t) nodeId & 0x0FFF), alias);
-        //msgOut.setDataLength(0);
-        //Serial.print(F("CID4: "));
-        //Serial.println(*msgOut.getPId(), HEX);
-        //if (canInt->sendMessage(&msgOut)) {
-        //registry.setStatus(alias, CID4received);
-        //} else {
-        //registry.remove(alias);                // start again if we couldn't send the message
-        //fail = true;
-        //}
-        //waitStart = millis();
-        //break;
-        //case CID4:
-        //break;
-        */
-        case noneSent:
+         case noneSent:
             msgOut.setCANid(RID, alias);
             msgOut.setDataLength(0);
 
@@ -307,18 +252,6 @@ void loop() {
         break;
     }
 
-    // inject fake can messages
-    /*
-    	Serial.println("Preparing to Send?");
-    	Serial.print("CANid: "); Serial.println(msgOut.getId(), HEX);
-    	Serial.print("datalength: "); Serial.println(msgOut.getDataLength());
-    	Serial.print("data: ");
-    	for (int i = 0; i < 8; i++){
-    		Serial.print(Nybble2Hex((msgOut.getDataByte(i) >> 4) & 0x0F));
-    		Serial.print(Nybble2Hex(msgOut.getDataByte(i) & 0x0F));
-    		}
-    	Serial.println();
-    */
     // is there anything to send?
     if (msgOut.getId() != 0) {
         SendMessage();
@@ -406,32 +339,8 @@ void loop() {
 
                     // datagrams
                     case 0xA123:
-                        switch (msgIn.getDataByte(0)) {
-                        case 0x20:
-                            // send acknowlegment
-                            SendDROK(senderAlias, alias, true);
-                            if (msgIn.getDataByte(1) == 0x40) {
-                                switch (msgIn.getDataByte(6)) {
-                                case 0xFB:  // user descriptions
-                                    //Serial.print("Sending user data, length ") Serial.println(sizeof(eed.header.userName) + sizeof(eed.header.userDescription));
-                                    SendDatagram(senderAlias, alias, &msgIn, eed.header.userName, sizeof(eed.header.userName) + sizeof(eed.header.userDescription));
-                                    break;
-                                }
-                            }
-
-                            if (msgIn.getDataByte(1) == 0x41) {
-                                // it's a request for space 0xFD - configuration Data
-                                SendDatagram(senderAlias, alias, &msgIn, (const char *) &eed.event[0], sizeof(EEPROM_Data) - sizeof(eed.header));
-                            }
-                            if (msgIn.getDataByte(1) == 0x43) {
-                                // its a cdi request
-                                SendDatagram(senderAlias, alias, &msgIn, cdiXml, strlen(cdiXml) + 1);
-                                //((uint32_t) msgIn.getDataByte(2) << 24) + ((uint32_t) msgIn.getDataByte(3) << 16) + ((uint32_t) msgIn.getDataByte(4) << 8) + ((uint32_t) msgIn.getDataByte(5)),
-                                //(uint8_t) msgIn.getDataByte(6));
-
-                            }
-                            break;
-                        }
+                        ReceiveDatagram(&msgIn, &datagramBuffer[0], &datagramPtr);
+                        ProcessDatagram(senderAlias, alias, &datagramBuffer[0], datagramPtr);
                         break;
 
                     case 0xB123:
@@ -441,49 +350,16 @@ void loop() {
 
                     case 0xD123:
                         ReceiveDatagram(&msgIn, &datagramBuffer[0], &datagramPtr);
-                        SendDROK(senderAlias, alias, true);
-                        Serial.print("Datagram Buffer: "); for(int i = 0; i < 8; i++) {
-							if (datagramBuffer[i] < 0x10) Serial.print("0");
-							Serial.print(datagramBuffer[i], HEX); Serial.print(" ");
-							 }
-							 Serial.println();
-                        // is this configuration?
-                        switch(datagramBuffer[0]) {
-                        case 0x20: {
-                            uint32_t errorCode = 0x0000;
-                            switch(datagramBuffer[1]) {
-                            case 0x01:
-                                // write to config space FD (configuration Data)
-                                addressOffset = (((((uint32_t)datagramBuffer[2] << 8) + (uint32_t)datagramBuffer[3] << 8) + (uint32_t)datagramBuffer[4] << 8) + (uint32_t)datagramBuffer[5]);
-                                if (addressOffset + datagramPtr <= sizeof(EEPROM_Data)- sizeof(eed.header)) {
-                                    memcpy(&eed.event[0], &datagramBuffer[6], datagramPtr);
-                                    errorCode = 0x0;
-                                } else {
-                                    errorCode = 0x1080; // out of range
-                                }
-                                SendWriteReply(senderAlias, alias, &datagramBuffer[0], errorCode);
-                                break;
-                                
-                                //case 0x02:
-                                // write to config space FE (configuration Data)
-                                //break:
-                                //case 0xFB:
-                                //if (datagramBuffer[5] == 0x00) {
-                                //strcpy(UserName, (const char*)&datagramBuffer[7]);
-                                //} else {
-                                //strcpy(UserDescription, (const char*)&datagramBuffer[7]);
-                                //}
-                                //}
-                                //SendDROK(alias, senderAlias, false);
-                                //break;
-                            }
-                            break;
-                        }
-                        }
-
-                    case DROK:
+                        ProcessDatagram(senderAlias, alias, &datagramBuffer[0], datagramPtr);
+                        break;
+                        
+                     case DROK:
                         if (waitForDatagramACK) waitForDatagramACK = false;
                         break;
+                        
+                     case 0x1111:
+                        DumpEEPROM();
+                        break;   
                     }
                 }
             }
@@ -535,19 +411,7 @@ bool SendMessage() {
     //  uint8_t CANData[8]; // = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07};
     char CANAscii[CANASCII_SIZE]; // array to store the ASCII-encoded message
 
-    //Serial.println("Preparing to Send");
-    //Serial.print("CANid: "); Serial.println(msgOut.getId(), HEX);
-    //Serial.print("datalength: "); Serial.println(msgOut.getDataLength());
-    //Serial.print("data: ");
-    //for (int i = 0; i < 8; i++){
-    //Serial.print(Nybble2Hex((msgOut.getDataByte(i) >> 4) & 0x0F));
-    //Serial.print(Nybble2Hex(msgOut.getDataByte(i) & 0x0F));
-    //}
-    //Serial.println();
-
-
-
-    CANIdentifier = msgOut.getId() | 0x10000000;
+     CANIdentifier = msgOut.getId() | 0x10000000;
     //    msgOut.getData(CANData, CANDataLen);
     //    Serial.print("CANIdentifier: "); Serial.println(CANIdentifier, HEX);
     //    Serial.print("CANDataLen: "); Serial.println(CANDataLen);
@@ -747,11 +611,174 @@ void ReceiveDatagram(OpenLCBMessage* m, byte* buffer, uint8_t * ptr) {
 
     Serial.print("ptr: "); Serial.println(*ptr);
 
-    if (m->getMTI() == 0xB123) {
+    if (m->getMTI() == 0xA123 || m->getMTI() == 0xB123) {
         memset(buffer, '\0', 72);
         *ptr = 0;
     }
 
     m->getData(buffer + *ptr, &dataLength);
     *ptr += dataLength;
+}
+
+void ProcessDatagram(uint16_t senderAlias, uint16_t alias,  byte* datagram, uint8_t datagramLength) {
+    uint32_t errorCode = 0x0000;
+    byte addressSpace = 0x00;
+
+    //Serial.print("Datagram Buffer: ");
+    //for(int i = 0; i < 8; i++) {
+    //if (datagram[i] < 0x10) Serial.print("0");
+    //Serial.print(datagram[i], HEX);
+    //Serial.print(" ");
+    //}
+    //Serial.println();
+
+    switch (*datagram) {
+    case 0x20:  // is this configuration?
+        // send acknowlegment
+        SendDROK(senderAlias, alias, true);
+
+        switch (*(datagram + 1)) {
+        case 0x40:
+            addressSpace = *(datagram + 6);
+            break;
+
+        case 0x01:
+        case 0x41:
+            addressSpace = 0xFD;     // Configuration definition
+            break;
+
+        case 0x42:
+            addressSpace = 0xFE;     // All memory
+            break;
+
+        case 0x43:
+            addressSpace = 0xFF;     // Configuration definition
+            break;
+        }
+
+        switch (*(datagram + 1)) {
+        case 0x40:
+        case 0x41:
+        case 0x42:
+        case 0x43:
+            switch(addressSpace) {
+            // configuration requests for data
+
+            case 0xFB:  // user descriptions
+                //Serial.print("Sending user data, length ") Serial.println(sizeof(eed.header.userName) + sizeof(eed.header.userDescription));
+                SendDatagram(senderAlias, alias, &msgIn, eed.header.userName, sizeof(eed.header.userName) + sizeof(eed.header.userDescription));
+                break;
+
+            case 0xFD:
+                // it's a request for space 0xFD - configuration Data
+                SendDatagram(senderAlias, alias, &msgIn, (const char *) &eed.event[0], sizeof(EEPROM_Data) - sizeof(eed.header));
+                break;
+
+            case 0xFF:
+                // its a cdi request
+                SendDatagram(senderAlias, alias, &msgIn, cdiXml, strlen(cdiXml) + 1);
+                break;
+            }
+            break;
+            
+        case 0x01:
+            // write configuration
+            switch(addressSpace) {
+            case 0xFD:
+                // write to config space FD (configuration Data)
+                addressOffset = (((((((uint32_t)datagram[2] << 8) + (uint32_t)datagram[3]) << 8) + (uint32_t)datagram[4]) << 8) + (uint32_t)datagram[5]);
+                Serial.print("addressOffset: "); Serial.println(addressOffset);
+                if (addressOffset + datagramLength <= sizeof(EEPROM_Data)- sizeof(eed.header)) {
+                    memcpy(((byte*)&eed.event[0]) + addressOffset, &datagram[6], datagramLength);
+                    errorCode = 0x0;
+                } else {
+                    errorCode = 0x1080; // out of range
+                }
+                SendWriteReply(senderAlias, alias, &datagram[0], errorCode);
+                break;
+            }
+            break;
+        }
+    }
+}
+
+
+void DumpEEPROM(){
+	hexDump("EEPROM Data", &eed, sizeof(EEPROM_Data));
+	//for (int i = 0; i < sizeof(EEPROM_Data); i+= 32){
+    	//Serial.print(i); Serial.print(" ");
+		//for (int j = 0; j < 32; j++){
+			//Serial.print(Nybble2Hex((((char)eed)[(i*32)+j]) >> 4));	Serial.print(Nybble2Hex((((char)eed)[(i*32)+j]) & 0x0F));
+			//}
+		//Serial.print(" ");
+		//for (int j = 0; j < 32; j++){
+			//if (((byte)eed)[(i*32)+j] >= 32 && ((byte)eed)[(i*32)+j] <= 126){
+			//Serial.print(((char)eed)[(i*32)+j]);
+		//}else{
+			//Serial.print(".");
+			//}
+			//}
+		//Serial.println();		
+		//}
+	}
+
+void p(char *fmt, ... ){
+        char buf[128]; // resulting string limited to 128 chars
+        va_list args;
+        va_start (args, fmt );
+        vsnprintf(buf, 128, fmt, args);
+        va_end (args);
+        Serial.print(buf);
+}
+
+void hexDump (char *desc, void *addr, int len) {
+    int i;
+    unsigned char buff[17];
+    unsigned char *pc = (unsigned char*)addr;
+
+    // Output description if given.
+    if (desc != NULL)
+        p ("%s:\n", desc);
+
+    if (len == 0) {
+        p("  ZERO LENGTH\n");
+        return;
+    }
+    if (len < 0) {
+        p("  NEGATIVE LENGTH: %i\n",len);
+        return;
+    }
+
+    // Process every byte in the data.
+    for (i = 0; i < len; i++) {
+        // Multiple of 16 means new line (with line offset).
+
+        if ((i % 16) == 0) {
+            // Just don't print ASCII for the zeroth line.
+            if (i != 0)
+                p ("  %s\n", buff);
+
+            // Output the offset.
+            p ("  %04x ", i);
+        }
+
+        // Now the hex code for the specific character.
+        p (" %02x", pc[i]);
+
+        // And store a printable ASCII character for later.
+        if ((pc[i] < 0x20) || (pc[i] > 0x7e))
+            buff[i % 16] = '.';
+        else
+            buff[i % 16] = pc[i];
+        buff[(i % 16) + 1] = '\0';
+    }
+
+    // Pad out last line if not exactly 16 characters.
+    while ((i % 16) != 0) {
+        p ("   ");
+        i++;
+    }
+
+    // And print the final ASCII bit.
+    p ("  %s\n", buff);
 }
