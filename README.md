@@ -2,6 +2,7 @@
 
 Contains the following folders:
 - ATTiny85_ServoController    Example servo controller.
+- ESP8266_OpenLCB_CDI_Model   Working model of OpenLCB configuration (using JMRI)
 - ESP8266_WiFi_to_CAN_v4      The sketch to directly interface the WiFi and CAN bus. Note: this sketch is completely untested.
 - ESP8266_WiFiTelnetToSerial  The sketch for the WiFi gateway.
 - fritzing                    Fritzing connection diagrams.
