@@ -36,12 +36,6 @@
    RTR CAN Message Syntax
 
    : <S | X > <IDENTIFIER> <R> <Length> ;
-
-Parts from
-  WiFiTelnetToSerial - Example Transparent UART to Telnet Server for esp8266
-
-  Copyright (c) 2015 Hristo Gochkov. All rights reserved.
-  This file is part of the ESP8266WiFi library for Arduino environment.
 */
 /* Example CAN-ASCII Messagesfrom the JMRI OpenLCB tool
 
@@ -79,17 +73,16 @@ struct OpenLCBEEPROMHeader {
     uint16_t  serial;
     char      userName[63];
     char      userDescription[64];
-    uint8_t  events; // maximum 20
 };
 
 enum EVENTTYPE:uint8_t {I2COutput, I2CInput, pinOutput, pinInput};
 
 struct OpenLCBEvent {
     uint64_t eventId;
+    char     eventName[37];
     EVENTTYPE eventType;
     uint8_t  address;
     uint8_t  eventValue;
-    char     eventName[33];
 };
 
 // build the data in RAM
@@ -179,6 +172,10 @@ void setup() {
 
     OpenLCBCDI cdi;
 
+//    eed.event[0].eventId = 0x0501010101310000ULL;
+//    hexDump("eventId", &eed.event[0].eventId, 8);
+//    print64BitHex(eed.event[0].eventId); Serial.println();
+
     memset(&eed, 0x00, sizeof(EEPROM_Data));
 
     eed.header.serial = 0xFFFF;
@@ -214,7 +211,7 @@ void loop() {
     switch (ns) {
     case uninitialised:
         switch(cidSent) {
-         case noneSent:
+        case noneSent:
             msgOut.setCANid(RID, alias);
             msgOut.setDataLength(0);
 
@@ -352,14 +349,18 @@ void loop() {
                         ReceiveDatagram(&msgIn, &datagramBuffer[0], &datagramPtr);
                         ProcessDatagram(senderAlias, alias, &datagramBuffer[0], datagramPtr);
                         break;
-                        
-                     case DROK:
+
+                    case DROK:
                         if (waitForDatagramACK) waitForDatagramACK = false;
                         break;
-                        
-                     case 0x1111:
+
+                    case 0x1111:
                         DumpEEPROM();
-                        break;   
+                        break;
+
+                    case 0x2222:
+                        DumpEEPROMFormatted();
+                        break;
                     }
                 }
             }
@@ -411,7 +412,7 @@ bool SendMessage() {
     //  uint8_t CANData[8]; // = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07};
     char CANAscii[CANASCII_SIZE]; // array to store the ASCII-encoded message
 
-     CANIdentifier = msgOut.getId() | 0x10000000;
+    CANIdentifier = msgOut.getId() | 0x10000000;
     //    msgOut.getData(CANData, CANDataLen);
     //    Serial.print("CANIdentifier: "); Serial.println(CANIdentifier, HEX);
     //    Serial.print("CANDataLen: "); Serial.println(CANDataLen);
@@ -592,16 +593,22 @@ void SendDatagram(const uint16_t destAlias, uint16_t senderAlias, OpenLCBMessage
 }
 
 void SendWriteReply(const uint16_t destAlias, uint16_t senderAlias, byte * buf, uint16_t errorCode) {
-    uint8_t dataPos = (*(buf+1) == 0x10)? 7:6;
+    uint8_t dataPos = (*(buf+1) == 0x00)? 7:6;
+    //hexDump("SendWriteReply", buf, dataPos);
     msgOut.setCANid(0xA000 + destAlias, senderAlias);
     msgOut.setData(buf, dataPos);  // retrieve as many data bytes as we were sent
+    //hexDump("SendWriteReply - set data buf", msgOut.getPData(), dataPos);
+    //Serial.print("*buf+1 "); Serial.println(*(buf+1));
+    * (msgOut.getPData() + 1) = (*(buf+1)) + 0x10;
+    //Serial.print("msgOut.getPData() + 1 "); Serial.println(* (msgOut.getPData() + 1));
     if (errorCode != 0) {
-        * (msgOut.getPData() + 1) = *buf+1 + 0x08;
+        * (msgOut.getPData() + 1) = (*buf+1) + 0x08;
         * (msgOut.getPData() + dataPos) = (byte)errorCode >> 8;
         * (msgOut.getPData() + dataPos + 1) = (byte)errorCode & 0xFF;
         msgOut.setDataLength(dataPos + 1);
     }
 
+    //hexDump("SendWriteReply - message", msgOut.getPData(), dataPos);
     SendMessage();
 
 }
@@ -609,7 +616,8 @@ void SendWriteReply(const uint16_t destAlias, uint16_t senderAlias, byte * buf, 
 void ReceiveDatagram(OpenLCBMessage* m, byte* buffer, uint8_t * ptr) {
     uint8_t dataLength = 0;
 
-    Serial.print("ptr: "); Serial.println(*ptr);
+//    Serial.print("ptr: ");
+//    Serial.println(*ptr);
 
     if (m->getMTI() == 0xA123 || m->getMTI() == 0xB123) {
         memset(buffer, '\0', 72);
@@ -638,6 +646,7 @@ void ProcessDatagram(uint16_t senderAlias, uint16_t alias,  byte* datagram, uint
         SendDROK(senderAlias, alias, true);
 
         switch (*(datagram + 1)) {
+        case 0x00:
         case 0x40:
             addressSpace = *(datagram + 6);
             break;
@@ -680,16 +689,34 @@ void ProcessDatagram(uint16_t senderAlias, uint16_t alias,  byte* datagram, uint
                 break;
             }
             break;
-            
+
+        case 0x00:
         case 0x01:
             // write configuration
             switch(addressSpace) {
+			case 0xFB:
+                hexDump("Datagram", datagram, datagramLength);
+                // write to config space FB (user Data)
+                addressOffset = (((((((uint32_t)datagram[2] << 8) + (uint32_t)datagram[3]) << 8) + (uint32_t)datagram[4]) << 8) + (uint32_t)datagram[5]);
+                Serial.print("addressOffset: ");
+                Serial.println(addressOffset);
+                if (addressOffset + datagramLength - 7 <= sizeof(eed.header)) {
+                    memcpy(((byte*)&eed.header.userName) + addressOffset, &datagram[7], datagramLength - 7);
+                    errorCode = 0x0;
+                } else {
+                    errorCode = 0x1080; // out of range
+                }
+                SendWriteReply(senderAlias, alias, &datagram[0], errorCode);			    
+			    break;
+				
             case 0xFD:
+                hexDump("Datagram", datagram, datagramLength);
                 // write to config space FD (configuration Data)
                 addressOffset = (((((((uint32_t)datagram[2] << 8) + (uint32_t)datagram[3]) << 8) + (uint32_t)datagram[4]) << 8) + (uint32_t)datagram[5]);
-                Serial.print("addressOffset: "); Serial.println(addressOffset);
+                Serial.print("addressOffset: ");
+                Serial.println(addressOffset);
                 if (addressOffset + datagramLength <= sizeof(EEPROM_Data)- sizeof(eed.header)) {
-                    memcpy(((byte*)&eed.event[0]) + addressOffset, &datagram[6], datagramLength);
+                    memcpy(((byte*)&eed.event[0]) + addressOffset, &datagram[6], datagramLength - 6);
                     errorCode = 0x0;
                 } else {
                     errorCode = 0x1080; // out of range
@@ -703,35 +730,35 @@ void ProcessDatagram(uint16_t senderAlias, uint16_t alias,  byte* datagram, uint
 }
 
 
-void DumpEEPROM(){
-	hexDump("EEPROM Data", &eed, sizeof(EEPROM_Data));
-	//for (int i = 0; i < sizeof(EEPROM_Data); i+= 32){
-    	//Serial.print(i); Serial.print(" ");
-		//for (int j = 0; j < 32; j++){
-			//Serial.print(Nybble2Hex((((char)eed)[(i*32)+j]) >> 4));	Serial.print(Nybble2Hex((((char)eed)[(i*32)+j]) & 0x0F));
-			//}
-		//Serial.print(" ");
-		//for (int j = 0; j < 32; j++){
-			//if (((byte)eed)[(i*32)+j] >= 32 && ((byte)eed)[(i*32)+j] <= 126){
-			//Serial.print(((char)eed)[(i*32)+j]);
-		//}else{
-			//Serial.print(".");
-			//}
-			//}
-		//Serial.println();		
-		//}
-	}
-
-void p(char *fmt, ... ){
-        char buf[128]; // resulting string limited to 128 chars
-        va_list args;
-        va_start (args, fmt );
-        vsnprintf(buf, 128, fmt, args);
-        va_end (args);
-        Serial.print(buf);
+void DumpEEPROM() {
+    hexDump("EEPROM Data", &eed, sizeof(EEPROM_Data));
+    //for (int i = 0; i < sizeof(EEPROM_Data); i+= 32){
+    //Serial.print(i); Serial.print(" ");
+    //for (int j = 0; j < 32; j++){
+    //Serial.print(Nybble2Hex((((char)eed)[(i*32)+j]) >> 4));	Serial.print(Nybble2Hex((((char)eed)[(i*32)+j]) & 0x0F));
+    //}
+    //Serial.print(" ");
+    //for (int j = 0; j < 32; j++){
+    //if (((byte)eed)[(i*32)+j] >= 32 && ((byte)eed)[(i*32)+j] <= 126){
+    //Serial.print(((char)eed)[(i*32)+j]);
+    //}else{
+    //Serial.print(".");
+    //}
+    //}
+    //Serial.println();
+    //}
 }
 
-void hexDump (char *desc, void *addr, int len) {
+void p(const char *fmt, ... ) {
+    char buf[128]; // resulting string limited to 128 chars
+    va_list args;
+    va_start (args, fmt );
+    vsnprintf(buf, 128, fmt, args);
+    va_end (args);
+    Serial.print(buf);
+}
+
+void hexDump (const char *desc, void *addr, int len) {
     int i;
     unsigned char buff[17];
     unsigned char *pc = (unsigned char*)addr;
@@ -782,3 +809,40 @@ void hexDump (char *desc, void *addr, int len) {
     // And print the final ASCII bit.
     p ("  %s\n", buff);
 }
+
+
+void DumpEEPROMFormatted() {
+    Serial.print("serial: ");
+    Serial.println(eed.header.serial, HEX);
+    Serial.print("userName: ");
+    Serial.println(eed.header.userName);
+    Serial.print("userDescription: ");
+    Serial.println(eed.header.userDescription);
+    for(int i = 0; i < 20; i++) {
+        if (eed.event[i].eventId != 0) {
+            Serial.print("event: ");
+            Serial.println(i);
+            Serial.print("eventId: ");
+            print64BitHex(ReverseEndianness(&eed.event[i].eventId));
+            Serial.println();
+            Serial.print("eventName: ");
+            Serial.println(eed.event[i].eventName);
+            Serial.print("eventType: ");
+            Serial.println(eed.event[i].eventType);
+            Serial.print("I2C address / pin: ");
+            Serial.println(eed.event[i].address);
+            Serial.print("command value: ");
+            Serial.println(eed.event[i].eventValue);
+        }
+    }
+}
+
+uint64_t ReverseEndianness(uint64_t *val){
+	uint64_t rev = 0;
+	
+	//hexDump("ReverseEndianness", val, 8);
+	for (int8_t i = 0; i < 8; i++){
+		rev += (uint64_t)(*(((byte*)val) + i)) << ((7 - i) * 8);
+		}
+	return rev;	
+	}
