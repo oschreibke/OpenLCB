@@ -110,7 +110,7 @@ enum MTI: uint16_t{// Basic
                    //        = 0xBddd         // CAN-Datagram Content (first frame) 
                    //        = 0xCddd         // CAN-Datagram Content (middle frame)
                    //        = 0xDddd         // CAN-Datagram Content (last frame)                            
-                   DROK      = 0x9A28,        //Datagram Received OK
+                   DROK      = 0x9A28,        // Datagram Received OK
                    DR        = 0x9A48,        // Datagram Rejected
                    // Stream
                    SIRQ      = 0x9CC8,        // Stream Initiate Request

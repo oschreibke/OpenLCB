@@ -67,15 +67,30 @@
 #include "OpenLCBCDI.h"
 #include "Util.h"
 
+// documentation
+#include "Description.h"
 
 
+// struct defining the user area of the EEPROM storage ( = Segment 253),
+// except for the serial which is the 16-bit node identifier to be appended to the
+// assigned OpenLCB number range. In my case 05 01 01 01 31.
 struct OpenLCBEEPROMHeader {
     uint16_t  serial;
     char      userName[63];
     char      userDescription[64];
 };
 
+// my chosen event handlers (EVENTTYPE is a misnomer)
 enum EVENTTYPE:uint8_t {I2COutput, I2CInput, pinOutput, pinInput};
+
+
+// Struct to hold the configuration for an event.
+// Beware C++ padding which will silently add bytes. The padding causes the whole data structure to be larger than 1024 bytes
+// which is all the Arduino Nano has.
+
+// The eventtypes allow configuration of an Arduino pin (D1 - D10). This is an arbitrary choice of the free pins on my Nano.
+// Alternatively allows configuration of an I2C device (= ATTiny85).
+// For example: setting a slowmo point (switch, turnout, weiche, whatever) to a set angle.
 
 struct OpenLCBEvent {
     uint64_t eventId;
@@ -85,14 +100,17 @@ struct OpenLCBEvent {
     uint8_t  eventValue;
 };
 
+
 // build the data in RAM
 struct EEPROM_Data {
     OpenLCBEEPROMHeader header;
     OpenLCBEvent event[20];
 };
 
+// The node id. For simplicity I'm using alias 123 without any negotiation.
 const uint64_t nodeId = 0x0501010131FFULL;
 const uint16_t alias = 0x123;
+
 
 // function templates
 bool initialiseESP8266(WiFiServer* server);
@@ -109,7 +127,7 @@ const IPAddress DNS(192, 168, 0, 32);
 WiFiServer wifiServer(23);  //listen to port 23
 WiFiClient wifiClient;
 
-
+// define SHOWMESSAGES to write to the Serial object. The output can be viewed using the Arduino Serial Monitor;
 #define SHOWMESSAGES
 
 //#ifdef SHOWMESSAGES
@@ -119,9 +137,9 @@ WiFiClient wifiClient;
 //#endif
 
 
-// send and receive buffers for the can packets
-// CAN => received from the CAN interface; WiFi => received over WiFi
-
+// receive buffer for the can packets
+// WiFi => received over WiFi
+// Note CAN handling is fake. A physical CAN interface is not necessary.
 
 
 CAN_message_type  WiFiMessageType = Standard;
@@ -131,6 +149,7 @@ uint8_t WiFiData[8] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07};
 
 char msgString[128];                        // Array to store serial string
 
+// some status variables, probably left over from the code I hacked and not used
 bool wifiInitialised = false;
 enum NodeStatus {uninitialised, initialised};
 enum CIDSent {noneSent, CID1Sent, CID2Sent, CID3Sent, CID4Sent, RIDSent, AMDSent, INITSent};
@@ -138,23 +157,32 @@ enum CIDSent {noneSent, CID1Sent, CID2Sent, CID3Sent, CID4Sent, RIDSent, AMDSent
 NodeStatus ns = uninitialised;
 CIDSent cidSent = noneSent;
 
+// More status variables, possibly not all used
 bool sendCDI = false;
 //uint8_t sendCDIStep = 0;
 bool waitForDatagramACK = false;
 uint32_t addressOffset = 0;
 
+// The incoming and outgoing can messages
 OpenLCBMessage msgIn;
 OpenLCBMessage msgOut;
 
+// The sender alias ( = JMRI)
 uint16_t senderAlias = 0;
 
+// storage for an incoming datagram.
+// There is no code to prevent collisions when two datagrams arrive concurrently.
+// in this model that was not an issue. (bless you wol).
 byte datagramBuffer[72];
 uint8_t datagramPtr = 0;
 
+// allocate the fake EEPROM area
 EEPROM_Data eed;
 
+
+
 void setup() {
-    // start the uart
+    // start the connection for the Arduino serial monitor
     Serial.begin(115200);
 #ifdef SHOWMESSAGES
     Serial.print("\nStarting...\nESP8266 Connecting to ");
@@ -170,19 +198,25 @@ void setup() {
         Serial.print("Connection failed");
     }
 
+    // Allocate the cdi data area (surprised this stays in scope)
     OpenLCBCDI cdi;
 
-//    eed.event[0].eventId = 0x0501010101310000ULL;
-//    hexDump("eventId", &eed.event[0].eventId, 8);
-//    print64BitHex(eed.event[0].eventId); Serial.println();
+    //    eed.event[0].eventId = 0x0501010101310000ULL;
+    //    hexDump("eventId", &eed.event[0].eventId, 8);
+    //    print64BitHex(eed.event[0].eventId); Serial.println();
 
+    // ... and initialise it all to 0x00
     memset(&eed, 0x00, sizeof(EEPROM_Data));
 
+    // set up the serial and user area
     eed.header.serial = 0xFFFF;
     strcpy((char *)&eed.header.userName, "my first Node");
     strcpy((char *)&eed.header.userDescription, "first node for cdi");
 
+    // small sanity check
     cdi.ShowItemLengths();
+
+    // not needed. the CDI is static.
     //cdi.AssembleXML();
 
 
@@ -206,12 +240,19 @@ void loop() {
         }
     }
 
+    // (un) initialise the output id. 0=>no valid message to send
     msgOut.setId(0);
 
+    // Query the node status
     switch (ns) {
     case uninitialised:
+        // abbreviated setup
+        // (not sure if this is strictly necessary - JMRI will send Verified Node queries on opening the configuration panel)
+
+        // state machine for the initialisation process.
         switch(cidSent) {
         case noneSent:
+            // send a RID (Reserve ID) message
             msgOut.setCANid(RID, alias);
             msgOut.setDataLength(0);
 
@@ -223,7 +264,7 @@ void loop() {
         case RIDSent:
 
             // transition to permitted
-            // Send a AMD message
+            // Send a AMD (Alias Map Definition) message
             msgOut.setCANid(AMD, alias);
             msgOut.setNodeidToData(nodeId);
             cidSent = AMDSent;
@@ -259,6 +300,7 @@ void loop() {
     msgIn.setId(0);
 
     //// send incoming message from WiFi to CAN  (if available)
+    // in this case, simply populate the data structure
     if (wifiClient.available()) {
         //#ifdef SHOWMESSAGES
         //mySerial.println("WiFi Message received.");
@@ -275,7 +317,8 @@ void loop() {
             //mySerial.print(ch); // push it to the UART (=> Serial Monitor)
             //#endif
 
-            // process incoming characters - when CanAscii2Can returns true the message is complete and can be sent
+            // process incoming characters - when CanAscii2Can returns true the message is complete and can be processed
+            // Note: this code assumes it is the only node on the network. Which it is as it is also the gateway.
             if (CanAscii2Can(&WiFiIdentifier, &WiFiMessageType, &WiFiDataLen, WiFiData, &ch)) {
 #ifdef SHOWMESSAGES
                 Serial.print("Received Message. [");
@@ -299,21 +342,33 @@ void loop() {
                 if (ns == initialised) {
                     Serial.print("Processing message ");
                     Serial.println(msgIn.getMTI(), HEX);
-                    senderAlias = msgIn.getSenderAlias();
+                    senderAlias = msgIn.getSenderAlias();  // get JMRI's alias
+
+                    // decode the message type identifier (MTI)
                     switch (msgIn.getMTI()) {
 
+                    // A Simple Node Ident Info Request
                     case SNIIRQ:
+                        // respond with the Simple Node Ident Information
                         sendSNIHeader(alias, senderAlias);
                         sendSNIReply(alias, senderAlias, Manufacturer);
                         sendSNIReply(alias, senderAlias, ModelName);
                         sendSNIReply(alias, senderAlias, HardwareVersion);
                         sendSNIReply(alias, senderAlias, SoftwareVersion);
                         sendSNIUserHeader(alias, senderAlias);
-                        sendSNIUserReply(alias, senderAlias, 'N');
-                        sendSNIUserReply(alias, senderAlias, 'D');
+                        sendSNIUserReply(alias, senderAlias, 'N');  // send the user name for the node
+                        sendSNIUserReply(alias, senderAlias, 'D');  // send the user definition for the node
                         break;
 
+                    // A protocol support reply inquiry.
                     case  PSI: {
+                        // we can do:
+                        //  SPSP - Simple Protocol subset (whatever that is - the standards are vague)
+                        //  SNIP - Simple Node Information Protocol
+                        //  DP   - Datagram Protocol
+                        //  MCP  - Memory Configuration Protocol
+                        //  CDIP - Configuration Description Information
+
                         uint32_t protflags = SPSP | SNIP | DGP | MCP | CDIP;
                         msgOut.setCANid(PSR, alias);  // Respond with a Protocol Support Reply
                         dataBytes[0] = (byte)(senderAlias >> 8);
@@ -328,36 +383,50 @@ void loop() {
                         SendMessage();
                         break;
                     }
+
+                    // A Verify Node ID Number Global request
                     case VNIG:
+                        // respond with our full node id
                         msgOut.setCANid(VNN, alias);
                         msgOut.setNodeidToData(nodeId);
                         SendMessage();
                         break;
 
                     // datagrams
-                    case 0xA123:
+
+                    // Note: the following case statements are specific to this model.
+                    // profuction code will need to handle the alias part differently.
+
+                    case 0xA123:  // a single frame datagran addressed to me
                         ReceiveDatagram(&msgIn, &datagramBuffer[0], &datagramPtr);
                         ProcessDatagram(senderAlias, alias, &datagramBuffer[0], datagramPtr);
                         break;
 
-                    case 0xB123:
-                    case 0xC123:
+                    case 0xB123:  // the first of a multiframe datagram addressed to me
+                    case 0xC123:  // one of the middle frames, addressed to me
                         ReceiveDatagram(&msgIn, &datagramBuffer[0], &datagramPtr);
                         break;
 
-                    case 0xD123:
+                    case 0xD123:  // the final multiframe datagram addressed to me
                         ReceiveDatagram(&msgIn, &datagramBuffer[0], &datagramPtr);
+                        // as this is the last frame, we can process the whole datagram of up to 72 characters
                         ProcessDatagram(senderAlias, alias, &datagramBuffer[0], datagramPtr);
                         break;
 
                     case DROK:
+                        // process a Daragram received OK message from JMRI (No longer used?)
                         if (waitForDatagramACK) waitForDatagramACK = false;
                         break;
 
+                    // Message [11111123] from the JMRI send Frame Tool
+                    // hex dump the EEPROM data area
                     case 0x1111:
                         DumpEEPROM();
                         break;
 
+                    // Message [12222123] from the JMRI send Frame Tool
+                    // Do a formatted dump of the EEPROM data area to make sure the data has been correctly written
+                    // to the expected location.
                     case 0x2222:
                         DumpEEPROMFormatted();
                         break;
@@ -407,6 +476,8 @@ bool initialiseESP8266(WiFiServer* server) {
 }
 
 bool SendMessage() {
+    // Convert MsgOut to CANASCII format and send it to the WiFi client (JMRI)
+
     uint32_t CANIdentifier = 0;
     //  uint8_t CANDataLen = 0;
     //  uint8_t CANData[8]; // = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07};
@@ -417,19 +488,22 @@ bool SendMessage() {
     //    Serial.print("CANIdentifier: "); Serial.println(CANIdentifier, HEX);
     //    Serial.print("CANDataLen: "); Serial.println(CANDataLen);
 
+    // Only send if there's data
     if (CANIdentifier != 0) {
         //        Can2CanAscii(&CANIdentifier, &CANDataLen, CANData, CANAscii);
         Can2CanAscii(&CANIdentifier, msgOut.getPDataLength(), msgOut.getPData(), CANAscii);
         Serial.print("Sending: ");
         Serial.println(CANAscii);
-        // Transmit the CAN-Ascii message to the wificlient
+        // Transmit the CAN-Ascii message to the WiFiclient
         wifiClient.print(CANAscii);
         msgOut.setId(0);
     }
     yield();
 }
 
+
 bool SendDROK(uint16_t senderAlias, uint16_t destAlias, bool pending) {
+    // Send a Datagram Received OK message with the Reply Pending bit set, if requested.
     byte dataBytes[8];
 
     msgOut.setCANid(DROK, destAlias);
@@ -446,6 +520,9 @@ bool SendDROK(uint16_t senderAlias, uint16_t destAlias, bool pending) {
 }
 
 bool sendSNIHeader(uint16_t senderAlias, uint16_t destAlias) {
+    // Send the SNI header for the fixed data elements.
+    // for simplicity, this is not a full frame, only three bytes are sent
+    // to be followed by the actual string in subsequent frames
     byte dataBytes[3];
 
     msgOut.setCANid(SNIIR, senderAlias);
@@ -458,6 +535,8 @@ bool sendSNIHeader(uint16_t senderAlias, uint16_t destAlias) {
 }
 
 bool sendSNIReply(uint16_t senderAlias, uint16_t destAlias, const char infoText[]) {
+    // Send the SNI fixed data elements, one per call. Note: they will usually be stored in PROGGMEM
+    // used to transmit manufacturer name, node model name, node hardware version and node software version
     byte dataBytes[8];
     uint8_t pos = 0;
     uint8_t dataLen = 2;
@@ -472,6 +551,7 @@ bool sendSNIReply(uint16_t senderAlias, uint16_t destAlias, const char infoText[
     dataBytes[0] = (byte)(destAlias >> 8);
     dataBytes[1] = (byte)(destAlias & 0xFF);
 
+    // break the text into 8-byte chunks due to the length limit of a CAN frame
     while(pos < strlen(infoText) +1) {
 
         //Serial.print(F("Character at ")); Serial.print(pos); Serial.print(F(": ")); Serial.print(infoText[pos]); Serial.print(F(" dataBytes[")); Serial.print(dataLen);	Serial.print(F("]: "));
@@ -482,7 +562,7 @@ bool sendSNIReply(uint16_t senderAlias, uint16_t destAlias, const char infoText[
 
         if (dataLen > 7 || pos > strlen(infoText)) {
             msgOut.setData(&dataBytes[0], dataLen);
-            delay(50);   // add delay otherwise messages are not sent in sequence
+            delay(50);   // add delay otherwise messages are not sent in sequence (Not necessary here: this is a problem with the CAN library)
             SendMessage();
             msgOut.setCANid(SNIIR, senderAlias);
             dataLen = 2;
@@ -493,6 +573,7 @@ bool sendSNIReply(uint16_t senderAlias, uint16_t destAlias, const char infoText[
 }
 
 bool sendSNIUserHeader(uint16_t senderAlias, uint16_t destAlias) {
+    // Send the SNI header for the user data elements
     byte dataBytes[3];
 
     msgOut.setCANid(SNIIR, senderAlias);
@@ -505,12 +586,15 @@ bool sendSNIUserHeader(uint16_t senderAlias, uint16_t destAlias) {
 }
 
 bool sendSNIUserReply(uint16_t senderAlias, uint16_t destAlias, const char userValue) {
+    // Send the SNI fixed data elements, one per call. Note: they will usually be stored in EEPROM.
+    // used to transmit the User Name and User Description.
     byte dataBytes[8];
     char infoText[64];
     uint8_t pos = 0;
     uint8_t dataLen = 2;
     bool fail = false;
 
+    // marshal the requested data into a temporary buffer
     switch (userValue) {
     // User Name
     case 'N':
@@ -537,6 +621,7 @@ bool sendSNIUserReply(uint16_t senderAlias, uint16_t destAlias, const char userV
     dataBytes[0] = (byte)(destAlias >> 8);
     dataBytes[1] = (byte)(destAlias & 0xFF);
 
+    // break the text into 8-byte chunks due to the length limit of a CAN frame
     while(pos < strlen(infoText) +1) {
 
         //Serial.print(F("Character at ")); Serial.print(pos); Serial.print(F(": ")); Serial.print(infoText[pos]); Serial.print(F(" dataBytes[")); Serial.print(dataLen);	Serial.print(F("]: "));
@@ -550,7 +635,7 @@ bool sendSNIUserReply(uint16_t senderAlias, uint16_t destAlias, const char userV
         }
         if (dataLen > 7 || pos > strlen(infoText)) {
             msgOut.setData(&dataBytes[0], dataLen);
-            delay(50);   // add delay otherwise messages are not sent in sequence
+            delay(50);   // add delay otherwise messages are not sent in sequence (Not necessary here: this is a problem with the CAN library)
             SendMessage();
             msgOut.setCANid(SNIIR, senderAlias);
         }
@@ -561,12 +646,20 @@ bool sendSNIUserReply(uint16_t senderAlias, uint16_t destAlias, const char userV
 }
 
 void SendDatagram(const uint16_t destAlias, uint16_t senderAlias, OpenLCBMessage * msg, const char * data, uint16_t dataLength) {
+    // send a datagram containing a reply to a request for data
+    // Note: depending on the segment production code will need to retrieve from the appropriate storage: PROGMEM or EEPROM
+
+    // fiddle with the location of the Segment specifier - JMRI is not consistent. See  S-9.7.4.2 for details
     uint8_t lenPos = (msg->getDataByte(1) == 0x40)? 7:6;
+    // determine the offset within the segment of the data to read/write
     uint32_t address = ((uint32_t) msg->getDataByte(2) << 24) + ((uint32_t) msg->getDataByte(3) << 16) + ((uint32_t) msg->getDataByte(4) << 8) + ((uint32_t) msg->getDataByte(5));
+    // how much data was requested? Normally a read will request 64 (0x40) bytes, a write will send the length of the data element (e.g. 8 bytes for an event id).
     uint8_t length = (uint8_t) msg->getDataByte(lenPos);
 
     // copy the request bytes
     //msgOut.setCANid(((length <= dataLength + 1 - 6)?0xB000:0xA000) + destAlias, senderAlias);
+
+    // send a response datagram. The data content is the first 6/7 (depending on byte 1 of the request (S-9.7.4.2))
     msgOut.setCANid(0xB000 + destAlias, senderAlias);
     //    buf[0] = 0x20;
     //    buf[1] = 0x53; // address space FF
@@ -575,14 +668,18 @@ void SendDatagram(const uint16_t destAlias, uint16_t senderAlias, OpenLCBMessage
     //    buf[4] = (byte)((address >> 8) & 0xFF);
     //    buf[5] = (byte)(address & 0xFF);
     msgOut.setData(msg->getPData(), msg->getDataLength() - 1);  // retrieve as many data bytes as we were sent
+    // pointer arithmetic, add 0x10 to byte 1 of the data area
     * (msgOut.getPData() + 1) = msg->getDataByte(1) + 0x10;
 
+    // send the reply header
     SendMessage();
 
+    // calculate how much data to send
     if (address + length > dataLength + 1) {
         length = dataLength + 1 - address; // include the terminating null
     }
 
+    // send the data in 8-byte chunks, identify the last frame as the final frame in the datagram.
     for (int i = 0; i < length; i+=8) {
         msgOut.setCANid((i < (length - 8)? 0xC000 : 0xD000) + destAlias, senderAlias);
         msgOut.setData((byte*)(&data[address + i]), (length - i) >= 8 ? 8 : length - i );
@@ -593,14 +690,22 @@ void SendDatagram(const uint16_t destAlias, uint16_t senderAlias, OpenLCBMessage
 }
 
 void SendWriteReply(const uint16_t destAlias, uint16_t senderAlias, byte * buf, uint16_t errorCode) {
+    // send a reply to a write request. This will fit in a singe frame, so use MTI OxAxxx.
+
+    // again, fiddle with the request format to determine the length of the data to send
     uint8_t dataPos = (*(buf+1) == 0x00)? 7:6;
     //hexDump("SendWriteReply", buf, dataPos);
     msgOut.setCANid(0xA000 + destAlias, senderAlias);
     msgOut.setData(buf, dataPos);  // retrieve as many data bytes as we were sent
     //hexDump("SendWriteReply - set data buf", msgOut.getPData(), dataPos);
     //Serial.print("*buf+1 "); Serial.println(*(buf+1));
+
+    // pointer Arithmetic: add 0x10 to byte 1 of the data area.
     * (msgOut.getPData() + 1) = (*(buf+1)) + 0x10;
     //Serial.print("msgOut.getPData() + 1 "); Serial.println(* (msgOut.getPData() + 1));
+
+    // send an error response if the error code was set.
+    // again pointer arithmetic to put things in the correct place. Could be improved to increase transparency.
     if (errorCode != 0) {
         * (msgOut.getPData() + 1) = (*buf+1) + 0x08;
         * (msgOut.getPData() + dataPos) = (byte)errorCode >> 8;
@@ -614,23 +719,28 @@ void SendWriteReply(const uint16_t destAlias, uint16_t senderAlias, byte * buf, 
 }
 
 void ReceiveDatagram(OpenLCBMessage* m, byte* buffer, uint8_t * ptr) {
+    // receive a datagram and build the datagram buffer
     uint8_t dataLength = 0;
 
-//    Serial.print("ptr: ");
-//    Serial.println(*ptr);
+    //    Serial.print("ptr: ");
+    //    Serial.println(*ptr);
 
+    // 0xAxxx and 0xBxxx indicate the first (only) frame in the datagram, clear the buffer and reset the pointer before filling.
     if (m->getMTI() == 0xA123 || m->getMTI() == 0xB123) {
         memset(buffer, '\0', 72);
         *ptr = 0;
     }
 
+    // fill the received data into the buffer at the appropriate offset, then adjust the pointer
     m->getData(buffer + *ptr, &dataLength);
     *ptr += dataLength;
 }
 
 void ProcessDatagram(uint16_t senderAlias, uint16_t alias,  byte* datagram, uint8_t datagramLength) {
-    uint32_t errorCode = 0x0000;
-    byte addressSpace = 0x00;
+    // process the datagram we just received
+
+    uint32_t errorCode = 0x0000;  // no error (so far)
+    byte addressSpace = 0x00;     // undefined Segment
 
     //Serial.print("Datagram Buffer: ");
     //for(int i = 0; i < 8; i++) {
@@ -640,11 +750,13 @@ void ProcessDatagram(uint16_t senderAlias, uint16_t alias,  byte* datagram, uint
     //}
     //Serial.println();
 
+    // configuration datagrams (read and write) have 0x20 in the first byte (Byte[0])
     switch (*datagram) {
     case 0x20:  // is this configuration?
         // send acknowlegment
         SendDROK(senderAlias, alias, true);
 
+        // determine the Segment - no error handling for an incorrect specification
         switch (*(datagram + 1)) {
         case 0x00:
         case 0x40:
@@ -665,6 +777,7 @@ void ProcessDatagram(uint16_t senderAlias, uint16_t alias,  byte* datagram, uint
             break;
         }
 
+        // read requests
         switch (*(datagram + 1)) {
         case 0x40:
         case 0x41:
@@ -690,37 +803,52 @@ void ProcessDatagram(uint16_t senderAlias, uint16_t alias,  byte* datagram, uint
             }
             break;
 
+        // write requests - again, no error handling if an incorrect Segment is requested.
         case 0x00:
         case 0x01:
             // write configuration
             switch(addressSpace) {
-			case 0xFB:
+            case 0xFB:
+                // write to Segment 0xFB (251) - User Descriptions
                 hexDump("Datagram", datagram, datagramLength);
                 // write to config space FB (user Data)
+
+                // dertrmine the address offset
                 addressOffset = (((((((uint32_t)datagram[2] << 8) + (uint32_t)datagram[3]) << 8) + (uint32_t)datagram[4]) << 8) + (uint32_t)datagram[5]);
                 Serial.print("addressOffset: ");
                 Serial.println(addressOffset);
+                // make sure we haven't gone outside the data area.
+                // If OK, write the data
+                // otherwise, create an error response.
                 if (addressOffset + datagramLength - 7 <= sizeof(eed.header)) {
                     memcpy(((byte*)&eed.header.userName) + addressOffset, &datagram[7], datagramLength - 7);
                     errorCode = 0x0;
                 } else {
                     errorCode = 0x1080; // out of range
                 }
-                SendWriteReply(senderAlias, alias, &datagram[0], errorCode);			    
-			    break;
-				
+
+                // confirm the action
+                SendWriteReply(senderAlias, alias, &datagram[0], errorCode);
+                break;
+
             case 0xFD:
+                // write to Segment 0xFD - Configuration data
                 hexDump("Datagram", datagram, datagramLength);
                 // write to config space FD (configuration Data)
                 addressOffset = (((((((uint32_t)datagram[2] << 8) + (uint32_t)datagram[3]) << 8) + (uint32_t)datagram[4]) << 8) + (uint32_t)datagram[5]);
                 Serial.print("addressOffset: ");
                 Serial.println(addressOffset);
+                // make sure we haven't gone outside the data area.
+                // If OK, write the data
+                // otherwise, create an error response.
                 if (addressOffset + datagramLength <= sizeof(EEPROM_Data)- sizeof(eed.header)) {
                     memcpy(((byte*)&eed.event[0]) + addressOffset, &datagram[6], datagramLength - 6);
                     errorCode = 0x0;
                 } else {
                     errorCode = 0x1080; // out of range
                 }
+
+                // confirm the action
                 SendWriteReply(senderAlias, alias, &datagram[0], errorCode);
                 break;
             }
@@ -731,6 +859,7 @@ void ProcessDatagram(uint16_t senderAlias, uint16_t alias,  byte* datagram, uint
 
 
 void DumpEEPROM() {
+    // dump the EEPROM in hex format
     hexDump("EEPROM Data", &eed, sizeof(EEPROM_Data));
     //for (int i = 0; i < sizeof(EEPROM_Data); i+= 32){
     //Serial.print(i); Serial.print(" ");
@@ -749,6 +878,8 @@ void DumpEEPROM() {
     //}
 }
 
+
+// Dump a data area in hex format helper (stolen from somewhere on StackOverflow)
 void p(const char *fmt, ... ) {
     char buf[128]; // resulting string limited to 128 chars
     va_list args;
@@ -758,6 +889,7 @@ void p(const char *fmt, ... ) {
     Serial.print(buf);
 }
 
+// Dump a data area in hex format (stolen from somewhere on StackOverflow)
 void hexDump (const char *desc, void *addr, int len) {
     int i;
     unsigned char buff[17];
@@ -812,6 +944,8 @@ void hexDump (const char *desc, void *addr, int len) {
 
 
 void DumpEEPROMFormatted() {
+    // do a formatted dump of the Configuration data to make sure everything
+    // was written where we expected.
     Serial.print("serial: ");
     Serial.println(eed.header.serial, HEX);
     Serial.print("userName: ");
@@ -837,12 +971,15 @@ void DumpEEPROMFormatted() {
     }
 }
 
-uint64_t ReverseEndianness(uint64_t *val){
-	uint64_t rev = 0;
-	
-	//hexDump("ReverseEndianness", val, 8);
-	for (int8_t i = 0; i < 8; i++){
-		rev += (uint64_t)(*(((byte*)val) + i)) << ((7 - i) * 8);
-		}
-	return rev;	
-	}
+uint64_t ReverseEndianness(uint64_t *val) {
+    // The ESP8266 is little-endian, OpenLCB is big-endian
+    // adjust so the event id is rendered correctly
+    // There are probably better ways to handle the event-id, for example as an 8-byte value *ToDo*
+    uint64_t rev = 0;
+
+    //hexDump("ReverseEndianness", val, 8);
+    for (int8_t i = 0; i < 8; i++) {
+        rev += (uint64_t)(*(((byte*)val) + i)) << ((7 - i) * 8);
+    }
+    return rev;
+}
