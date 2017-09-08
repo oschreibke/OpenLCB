@@ -8,6 +8,9 @@
  *
  * NOT SUITABLE TO PUT ON THE INTERNET OR INTO A PRODUCTION ENVIRONMENT!!!!
  */
+#define configUSE_TRACE_FACILITY 1
+#define configUSE_STATS_FORMATTING_FUNCTIONS 1
+
 #include <string.h>
 #include "espressif/esp_common.h"
 #include "esp/uart.h"
@@ -20,15 +23,20 @@
 #include "ota-tftp.h"
 #include "rboot-api.h"
 
+#include "wifi_can.h"
+#include "tcpserver.h"
+
 #define TELNET_PORT 23
+
+struct queueHandles qh;
 
 bool check_wifi_connection() {
     uint8_t status = sdk_wifi_station_get_connect_status();
-    
+
     switch (status) {
-	case STATION_IDLE:
+    case STATION_IDLE:
         printf("WiFi: station idle\n\r");
-        break;	
+        break;
     case STATION_CONNECTING:
         printf("WiFi: station connecting\n\r");
         break;
@@ -42,7 +50,7 @@ bool check_wifi_connection() {
         printf("WiFi: connection failed\r\n");
         break;
     case STATION_GOT_IP:
-        printf("WiFi: got ip\r\n"); 
+        printf("WiFi: got ip\r\n");
         break;
     default:
         printf("%s: status = %d\n\r", __func__, status);
@@ -54,15 +62,20 @@ bool check_wifi_connection() {
 
 
 void heartbeat_task(void *pvParameters) {
-	static int i = 0;
+    static int i = 0;
+    //char * pcWriteBuffer = (char *) malloc(1024);
+
     while(1) {
-        vTaskDelay(10000 / portTICK_PERIOD_MS);
+
         printf("Heartbeat %d\n", ++i);
-        //check_wifi_connection();
+
+        // disable this when in use
+        //vTaskList(pcWriteBuffer);
+        //printf("Task List\n%s\n\n", pcWriteBuffer);
+
+        vTaskDelay(10000 / portTICK_PERIOD_MS);
     }
 }
-
-void telnet_task(void *pvParameters){} 
 
 void start_listeners_task(void *pvParameters) {
 
@@ -85,16 +98,12 @@ void start_listeners_task(void *pvParameters) {
 
     printf("Starting TFTP server. Listening on %d.%d.%d.%d:%d\n\n", ipconfig.ip.addr & 0xFF, (ipconfig.ip.addr >>8) & 0xFF, (ipconfig.ip.addr >>16) & 0xFF, ipconfig.ip.addr >>24, TFTP_PORT);
     ota_tftp_init_server(TFTP_PORT);
+    printf("TFTP server started\n");
 
-    struct netconn *nc = netconn_new (NETCONN_TCP);
-    if(!nc) {
-        netconn_bind(nc, IP_ADDR_ANY, TELNET_PORT);
-        netconn_listen(nc);
-
-        printf("starting telnet task");
-        xTaskCreate(telnet_task, "telnetTask", 512, NULL, 2, NULL);
-    } else {
-        printf("Status monitor: Failed to allocate socket.\r\n");
+    // start the telnet task if the queues have been successfully created
+    if (qh.xQueue1 != NULL && qh.xQueue2 != NULL) {
+        printf("starting telnet task\n");
+        xTaskCreate(tcpServer, "telnetTask", 512, &qh, 3, NULL);
     }
 
     printf("Terminating task 'start_ota_ftp_task' (me)\n");
@@ -105,7 +114,7 @@ void start_listeners_task(void *pvParameters) {
 void user_init(void) {
     uart_set_baud(0, 115200);
 
-    printf("\r\n\r\nOTA Basic demo.\r\n");
+    printf("\r\n\r\nWiFi -> can bridge.\r\n");
     printf("SDK version:%s\n", sdk_system_get_sdk_version());
 
     rboot_config conf = rboot_get_config();
@@ -117,7 +126,6 @@ void user_init(void) {
         printf("%c%d: offset 0x%08x\r\n", i == conf.current_rom ? '*':' ', i, conf.roms[i]);
     }
 
-
     printf("starting heartbeat task\n");
     xTaskCreate(&heartbeat_task, "heartbeat", configMINIMAL_STACK_SIZE, NULL, 2, NULL);
 
@@ -127,14 +135,30 @@ void user_init(void) {
         .bssid_set = 0
     };
 
-    printf("Connecting to %s, pwd: %s\n", config.ssid, config.password);
-    
+    printf("Connecting to %s.\n", config.ssid);
+
     //sdk_wifi_station_set_auto_connect(true);
     sdk_wifi_set_opmode(STATION_MODE);
     sdk_wifi_station_set_config(&config);
 
+    //printf("configUSE_TRACE_FACILITY %d, configUSE_STATS_FORMATTING_FUNCTIONS %d\n", configUSE_TRACE_FACILITY, configUSE_STATS_FORMATTING_FUNCTIONS);
+
+    printf("Creating queues\n");
+
+    qh.xQueue1 = xQueueCreate(10, CAN_ASCII_MESSAGE_LENGTH);
+
+    if( qh.xQueue1 == NULL ) {
+        printf("Could not create xQueue1\n");
+    }
+
+    qh.xQueue2 = xQueueCreate(10, sizeof(char *));
+
+    if( qh.xQueue2 == NULL ) {
+        printf("Could not create xQueue2\n");
+    }
+
     printf("starting listener (TFTP and Telnet) tasks.\n");
-    xTaskCreate(&start_listeners_task, "listener starter", configMINIMAL_STACK_SIZE, NULL, 2, NULL); 
-    
+    xTaskCreate(&start_listeners_task, "listener starter", configMINIMAL_STACK_SIZE, NULL, 2, NULL);
+
     printf("user_init complete\n");
 }
