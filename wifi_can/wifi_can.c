@@ -8,8 +8,6 @@
  *
  * NOT SUITABLE TO PUT ON THE INTERNET OR INTO A PRODUCTION ENVIRONMENT!!!!
  */
-#define configUSE_TRACE_FACILITY 1
-#define configUSE_STATS_FORMATTING_FUNCTIONS 1
 
 #include <string.h>
 #include "espressif/esp_common.h"
@@ -101,9 +99,9 @@ void start_listeners_task(void *pvParameters) {
     printf("TFTP server started\n");
 
     // start the telnet task if the queues have been successfully created
-    if (qh.xQueue1 != NULL && qh.xQueue2 != NULL) {
+    if (qh.xQueueWiFiToCan != NULL && qh.xQueueCanToWiFi != NULL) {
         printf("starting telnet task\n");
-        xTaskCreate(tcpServer, "telnetTask", 512, &qh, 3, NULL);
+        xTaskCreate(tcpServer, "telnetTask", 512, NULL, 3, NULL);
     }
 
     printf("Terminating task 'start_ota_ftp_task' (me)\n");
@@ -145,16 +143,16 @@ void user_init(void) {
 
     printf("Creating queues\n");
 
-    qh.xQueue1 = xQueueCreate(10, CAN_ASCII_MESSAGE_LENGTH);
+    qh.xQueueWiFiToCan = xQueueCreate(10, sizeof(char*));
 
-    if( qh.xQueue1 == NULL ) {
-        printf("Could not create xQueue1\n");
+    if( qh.xQueueWiFiToCan == NULL ) {
+        printf("Could not create xQueueWiFiToCan\n");
     }
 
-    qh.xQueue2 = xQueueCreate(10, sizeof(char *));
+    qh.xQueueCanToWiFi = xQueueCreate(10, sizeof(char *));
 
-    if( qh.xQueue2 == NULL ) {
-        printf("Could not create xQueue2\n");
+    if( qh.xQueueCanToWiFi == NULL ) {
+        printf("Could not create xQueueCanToWiFi\n");
     }
 
     printf("starting listener (TFTP and Telnet) tasks.\n");
