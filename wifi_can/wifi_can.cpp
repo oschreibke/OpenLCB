@@ -13,7 +13,7 @@
 #include "espressif/esp_common.h"
 #include "esp/uart.h"
 #include "FreeRTOS.h"
-#include "task.h"
+#include "task.hpp"
 #include "esp8266.h"
 #include "ssid_config.h"
 #include <lwip/api.h>
@@ -23,12 +23,35 @@
 
 #include "wifi_can.h"
 #include "tcpserver.h"
+#include "mcp_can.hpp"
+#include "canmessage.h"
 
 #define TELNET_PORT 23
 
 struct queueHandles qh;
+heartbeat_task ht;
+start_listeners_task slt;
+tcpServer tcpserver;
+// SPI CS pin = 10, MCP2515 interrupt pin 5
+MCP_CAN mcpcan(10, 5);
 
-bool check_wifi_connection() {
+void heartbeat_task::task() {
+    static int i = 0;
+    //char * pcWriteBuffer = (char *) malloc(1024);
+
+    while(1) {
+
+        printf("Heartbeat %d\n", ++i);
+
+        // disable this when in use
+        //vTaskList(pcWriteBuffer);
+        //printf("Task List\n%s\n\n", pcWriteBuffer);
+
+        vTaskDelay(10000 / portTICK_PERIOD_MS);
+    }
+}
+
+bool start_listeners_task::check_wifi_connection() {
     uint8_t status = sdk_wifi_station_get_connect_status();
 
     switch (status) {
@@ -59,23 +82,9 @@ bool check_wifi_connection() {
 }
 
 
-void heartbeat_task(void *pvParameters) {
-    static int i = 0;
-    //char * pcWriteBuffer = (char *) malloc(1024);
 
-    while(1) {
 
-        printf("Heartbeat %d\n", ++i);
-
-        // disable this when in use
-        //vTaskList(pcWriteBuffer);
-        //printf("Task List\n%s\n\n", pcWriteBuffer);
-
-        vTaskDelay(10000 / portTICK_PERIOD_MS);
-    }
-}
-
-void start_listeners_task(void *pvParameters) {
+void start_listeners_task::task() {
 
     // wait until we have an ip address
     while(!check_wifi_connection()) {
@@ -101,7 +110,8 @@ void start_listeners_task(void *pvParameters) {
     // start the telnet task if the queues have been successfully created
     if (qh.xQueueWiFiToCan != NULL && qh.xQueueCanToWiFi != NULL) {
         printf("starting telnet task\n");
-        xTaskCreate(tcpServer, "telnetTask", 512, NULL, 3, NULL);
+        //xTaskCreate(tcpServer, "telnetTask", 512, NULL, 3, NULL);
+        tcpserver.task_create("telnetTask", 512, 3);
     }
 
     printf("Terminating task 'start_ota_ftp_task' (me)\n");
@@ -109,7 +119,9 @@ void start_listeners_task(void *pvParameters) {
 
 }
 
-void user_init(void) {
+
+
+extern "C" void user_init(void) {
     uart_set_baud(0, 115200);
 
     printf("\r\n\r\nWiFi -> can bridge.\r\n");
@@ -125,13 +137,18 @@ void user_init(void) {
     }
 
     printf("starting heartbeat task\n");
-    xTaskCreate(&heartbeat_task, "heartbeat", configMINIMAL_STACK_SIZE, NULL, 2, NULL);
+    //xTaskCreate(&heartbeat_task, "heartbeat", configMINIMAL_STACK_SIZE, NULL, 2, NULL);
+    ht.task_create("heartbeat", configMINIMAL_STACK_SIZE, 2);
 
-    struct sdk_station_config config = {
-        .ssid = WIFI_SSID,
-        .password = WIFI_PASS,
-        .bssid_set = 0
-    };
+    //struct sdk_station_config config = {
+        //.ssid = WIFI_SSID,
+        //.password = WIFI_PASS,
+        //.bssid_set = 0
+    //};
+    struct sdk_station_config config;
+    strcpy((char*)config.ssid, WIFI_SSID);
+    strcpy((char*)config.password, WIFI_PASS);
+    config.bssid_set = 0;
 
     printf("Connecting to %s.\n", config.ssid);
 
@@ -149,14 +166,15 @@ void user_init(void) {
         printf("Could not create xQueueWiFiToCan\n");
     }
 
-    qh.xQueueCanToWiFi = xQueueCreate(10, sizeof(char *));
+    qh.xQueueCanToWiFi = xQueueCreate(10, sizeof(CAN_MESSAGE));
 
     if( qh.xQueueCanToWiFi == NULL ) {
         printf("Could not create xQueueCanToWiFi\n");
     }
 
     printf("starting listener (TFTP and Telnet) tasks.\n");
-    xTaskCreate(&start_listeners_task, "listener starter", configMINIMAL_STACK_SIZE, NULL, 2, NULL);
-
+    //xTaskCreate(&start_listeners_task, "listener starter", configMINIMAL_STACK_SIZE, NULL, 2, NULL);
+    slt.task_create("listener starter", configMINIMAL_STACK_SIZE, 2);
+    
     printf("user_init complete\n");
 }

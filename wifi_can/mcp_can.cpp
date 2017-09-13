@@ -26,6 +26,7 @@
 #include "espressif/esp_common.h"
 #include "FreeRTOS.h"
 #include "task.h"
+#include "queue.h"
 
 #define delay(t) vTaskDelay((t * 1000) / portTICK_PERIOD_MS)
 #define delayMicroseconds(t) vTaskDelay(t / portTICK_PERIOD_MS)
@@ -35,6 +36,7 @@
 #define MCP2515_UNSELECT() gpio_write(MCPCS, HIGH)
 
 #include "mcp_can.hpp"
+#include "interrupthandler.h"
 
 //#define spi_readwrite SPI.transfer
 #define USERBUS 1
@@ -766,6 +768,23 @@ MCP_CAN::MCP_CAN(INT8U _CS)
 }
 
 /*********************************************************************************************************
+** Function name:           MCP_CAN
+** Descriptions:            Public function to declare CAN class, the /CS pin, interrupt pin and the
+**                          handle to the queue to receive the incoming data.
+*********************************************************************************************************/
+
+MCP_CAN::MCP_CAN(INT8U _CS, INT8U _INTPIN)
+{
+    MCPCS = _CS;
+    pinMode(MCPCS, OUTPUT);
+    MCP2515_UNSELECT();
+    INTPIN = _INTPIN;
+    pinMode(INTPIN, INPUT);
+    // register the interrupt and handler
+    gpio_set_interrupt(INTPIN, GPIO_INTTYPE_EDGE_NEG, gpio_intr_handler);
+}
+
+/*********************************************************************************************************
 ** Function name:           begin
 ** Descriptions:            Public function to declare controller initialization parameters.
 *********************************************************************************************************/
@@ -1259,6 +1278,7 @@ INT8U MCP_CAN::disOneShotTX(void)
     else
         return CAN_OK;
 }
+
 
 /*********************************************************************************************************
   END FILE

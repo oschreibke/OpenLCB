@@ -40,6 +40,7 @@ class MCP_CAN
     INT8U   m_nfilhit;                                                  // The number of the filter that matched the message
     INT8U   MCPCS;                                                      // Chip Select pin number
     INT8U   mcpMode;                                                    // Mode to return to after configurations are performed.
+    INT8U   INTPIN;                                                     // interrupt pin
     
 
 /*********************************************************************************************************
@@ -93,6 +94,7 @@ class MCP_CAN
     void mcp2515_write_canMsg( const INT8U buffer_sidh_addr );          // Write CAN message
     void mcp2515_read_canMsg( const INT8U buffer_sidh_addr);            // Read CAN message
     INT8U mcp2515_getNextFreeTXBuf(INT8U *txbuf_n);                     // Find empty transmit buffer
+    
 
 /*********************************************************************************************************
  *  CAN operator function
@@ -105,6 +107,7 @@ class MCP_CAN
 
 public:
     MCP_CAN(INT8U _CS);
+    MCP_CAN(INT8U _CS, INT8U _INTPIN);
     INT8U begin(INT8U idmodeset, INT8U speedset, INT8U clockset);       // Initilize controller prameters
     INT8U init_Mask(INT8U num, INT8U ext, INT32U ulData);               // Initilize Mask(s)
     INT8U init_Mask(INT8U num, INT32U ulData);                          // Initilize Mask(s)

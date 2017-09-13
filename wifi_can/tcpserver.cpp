@@ -7,9 +7,11 @@
 #include "string.h"
 #include "FreeRTOS.h"
 #include "queue.h"
-#include "task.h"
+#include "task.hpp"
 #include "lwip/sockets.h"
 #include "tcpserver.h"
+#include "mcp_can.hpp"
+#include "canmessage.h"
 
 //#define os_zalloc(s)                        pvPortZalloc((s))
 #define os_zalloc(s)  calloc(1, (s))
@@ -18,9 +20,14 @@
 #define MAX_CONN 2
 
 int32_t listenfd;
+int32_t client_sock;
 extern struct queueHandles qh;
+tcpProcessor tcpprocessor;
+tcpListener tcplistener;
+canProcessor canprocessor;
 
-void tcpServer(void *pvParameters) {
+//void tcpServer(void *pvParameters) {
+void tcpServer::task() {	
     // 1. Establish a TCP server, and bind it with the local port.
 
     printf("starting Telnet Server\n");
@@ -74,9 +81,12 @@ void tcpServer(void *pvParameters) {
         }
     } while(ret != 0);
 
-    xTaskCreate(&tcpListener, "TCP listener", configMINIMAL_STACK_SIZE, NULL, 3, NULL);
-    xTaskCreate(&tcpProcessor, "TCP Processor", configMINIMAL_STACK_SIZE, NULL, 2, NULL);
-
+    //xTaskCreate(&tcpListener, "TCP listener", configMINIMAL_STACK_SIZE, NULL, 3, NULL);
+    //xTaskCreate(&tcpProcessor, "TCP Processor", configMINIMAL_STACK_SIZE, NULL, 2, NULL);
+    tcplistener.task_create("TCP listener", configMINIMAL_STACK_SIZE, 3);
+    tcpprocessor.task_create("TCP Processor", configMINIMAL_STACK_SIZE, 2);
+    canprocessor.task_create("CAN Processor", configMINIMAL_STACK_SIZE, 2);
+    
     while(1) {
         vTaskDelay(100000 / portTICK_PERIOD_MS);
     }
@@ -86,14 +96,15 @@ void tcpServer(void *pvParameters) {
     vTaskDelete(NULL);
 }
 
-void tcpListener(void * pvParameters) {
+//void tcpListener(void * pvParameters) {
+void tcpListener::task() {
     printf("ESP8266 TCP server task > listen ok\n");
 
     struct sockaddr_in remote_addr;
 
     // Wait until the TCP client is connected to the server; then start receiving data packets
     // when the TCP communication is established:
-    int32_t client_sock;
+
     int32_t len = sizeof(struct sockaddr_in);
     int32_t recbytes;
 
@@ -169,8 +180,8 @@ void tcpListener(void * pvParameters) {
     vTaskDelete(NULL);
 }
 
-int32_t hex2int(char* hexChar) {
-    char hexDigits[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
+uint8_t tcpProcessor::hex2int(char* hexChar) {
+    const char hexDigits[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
     int i;
 
     for(i = 0; i < 16; i++) {
@@ -181,7 +192,8 @@ int32_t hex2int(char* hexChar) {
     return i;
 };
 
-void tcpProcessor(void * pvParameters) {
+//void tcpProcessor(void * pvParameters) {
+void tcpProcessor::task() {
     char* pCanAsciiMessage;
     int hx;
     bool fail = false;
@@ -238,6 +250,43 @@ void tcpProcessor(void * pvParameters) {
         }
     }
 
+    // prevent bad things happening if we drop off the bottom
+    printf("Deleting task %s.\n", __func__);
+    vTaskDelete(NULL);
+}
+
+void canProcessor::byte2hex(uint8_t byte, char* ptr) {
+    const char hexDigits[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
+    *ptr = hexDigits[byte >> 4];
+    *(ptr + 1) = hexDigits[byte & 0x0F];
+    return;
+}
+
+void canProcessor::task() {
+    CAN_MESSAGE* pCanMessage;
+    char canAsciiMessage[CAN_ASCII_MESSAGE_LENGTH];
+    char* p;
+    while (1) {
+        if (xQueueReceive(qh.xQueueCanToWiFi, &pCanMessage, portMAX_DELAY) == pdPASS) {
+            strcpy(canAsciiMessage, ":X");
+            p = &canAsciiMessage[2];
+            for (int i = 3; i >= 0; i--) {
+                byte2hex(pCanMessage->id / (8 * i), p);
+                p += 2;
+            }
+            *p++ = 'N';
+            for (int i = 0; i < pCanMessage->len; i++) {
+                byte2hex(pCanMessage->dataBytes[i], p);
+                p += 2;
+            }
+            *p++ = ';';
+            *p = '\0';
+        }
+        free(pCanMessage);
+        if	(write(client_sock, &canAsciiMessage, strlen(canAsciiMessage) + 1) < 0){
+			printf("Write to TCP failed\n");
+}
+    }
     // prevent bad things happening if we drop off the bottom
     printf("Deleting task %s.\n", __func__);
     vTaskDelete(NULL);
