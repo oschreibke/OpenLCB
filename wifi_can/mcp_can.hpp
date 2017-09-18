@@ -106,13 +106,14 @@ class MCP_CAN
     INT8U sendMsg();                                                    // Send message
 
 public:
-    MCP_CAN(INT8U _CS);
-    MCP_CAN(INT8U _CS, INT8U _INTPIN);
-    INT8U begin(INT8U idmodeset, INT8U speedset, INT8U clockset);       // Initilize controller prameters
-    INT8U init_Mask(INT8U num, INT8U ext, INT32U ulData);               // Initilize Mask(s)
-    INT8U init_Mask(INT8U num, INT32U ulData);                          // Initilize Mask(s)
-    INT8U init_Filt(INT8U num, INT8U ext, INT32U ulData);               // Initilize Filter(s)
-    INT8U init_Filt(INT8U num, INT32U ulData);                          // Initilize Filter(s)
+    MCP_CAN();
+    //MCP_CAN(INT8U _CS);
+    //MCP_CAN(INT8U _CS, INT8U _INTPIN);
+    INT8U begin(INT8U _CS, INT8U _INTPIN, INT8U idmodeset, INT8U speedset, INT8U clockset);       // Initialize controller prameters
+    INT8U init_Mask(INT8U num, INT8U ext, INT32U ulData);               // Initialize Mask(s)
+    INT8U init_Mask(INT8U num, INT32U ulData);                          // Initialize Mask(s)
+    INT8U init_Filt(INT8U num, INT8U ext, INT32U ulData);               // Initialize Filter(s)
+    INT8U init_Filt(INT8U num, INT32U ulData);                          // Initialize Filter(s)
     INT8U setMode(INT8U opMode);                                        // Set operational mode
     INT8U sendMsgBuf(INT32U id, INT8U ext, INT8U len, INT8U *buf);      // Send message to transmit buffer
     INT8U sendMsgBuf(INT32U id, INT8U len, INT8U *buf);                 // Send message to transmit buffer

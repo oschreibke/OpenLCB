@@ -21,13 +21,16 @@
 
 int32_t listenfd;
 int32_t client_sock;
+
+MCP_CAN mcpcan;
 extern struct queueHandles qh;
+
 tcpProcessor tcpprocessor;
 tcpListener tcplistener;
 canProcessor canprocessor;
 
 //void tcpServer(void *pvParameters) {
-void tcpServer::task() {	
+void tcpServer::task() {
     // 1. Establish a TCP server, and bind it with the local port.
 
     printf("starting Telnet Server\n");
@@ -85,8 +88,14 @@ void tcpServer::task() {
     //xTaskCreate(&tcpProcessor, "TCP Processor", configMINIMAL_STACK_SIZE, NULL, 2, NULL);
     tcplistener.task_create("TCP listener", configMINIMAL_STACK_SIZE, 3);
     tcpprocessor.task_create("TCP Processor", configMINIMAL_STACK_SIZE, 2);
-    canprocessor.task_create("CAN Processor", configMINIMAL_STACK_SIZE, 2);
-    
+
+    printf("Setting up the can interface.\n");
+    if(mcpcan.begin(15, 5, MCP_ANY, CAN_125KBPS, MCP_8MHZ) == CAN_OK) {
+        printf("Can Init OK, starting can procesor task\n");
+        canprocessor.task_create("CAN Processor", configMINIMAL_STACK_SIZE, 2);
+    } else {
+        printf("Can init failed\n");
+    }
     while(1) {
         vTaskDelay(100000 / portTICK_PERIOD_MS);
     }
@@ -133,7 +142,7 @@ void tcpListener::task() {
             char* nPos = NULL;
             char* semicolonPos = NULL;
 
-            while ((colonPos = strchr(startPos, ':')) != NULL) {                                            // found a colon
+            while ((uint8_t)(startPos - recv_buf) < strlen(recv_buf) && (colonPos = strchr(startPos, ':')) != NULL) {                                            // found a colon
                 //printf("got :\n");
                 if(strchr(colonPos + 1, 'X') !=  NULL) {                                                    // followed immediately by an X
                     //printf("Got X\n");

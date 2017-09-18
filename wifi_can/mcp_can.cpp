@@ -758,51 +758,70 @@ INT8U MCP_CAN::mcp2515_getNextFreeTXBuf(INT8U *txbuf_n)                 /* get N
 
 /*********************************************************************************************************
 ** Function name:           MCP_CAN
-** Descriptions:            Public function to declare CAN class and the /CS pin.
+** Descriptions:            Public function to declare CAN class.
 *********************************************************************************************************/
-MCP_CAN::MCP_CAN(INT8U _CS)
+MCP_CAN::MCP_CAN()
 {
-    MCPCS = _CS;
-    pinMode(MCPCS, OUTPUT);
-    MCP2515_UNSELECT();
 }
 
-/*********************************************************************************************************
-** Function name:           MCP_CAN
-** Descriptions:            Public function to declare CAN class, the /CS pin, interrupt pin and the
-**                          handle to the queue to receive the incoming data.
-*********************************************************************************************************/
 
-MCP_CAN::MCP_CAN(INT8U _CS, INT8U _INTPIN)
-{
-    MCPCS = _CS;
-    pinMode(MCPCS, OUTPUT);
-    MCP2515_UNSELECT();
-    INTPIN = _INTPIN;
-    pinMode(INTPIN, INPUT);
-    // register the interrupt and handler
-    gpio_set_interrupt(INTPIN, GPIO_INTTYPE_EDGE_NEG, gpio_intr_handler);
-}
+///*********************************************************************************************************
+//** Function name:           MCP_CAN
+//** Descriptions:            Public function to declare CAN class and the /CS pin.
+//*********************************************************************************************************/
+//MCP_CAN::MCP_CAN(INT8U _CS)
+//{
+    //MCPCS = _CS;
+    //pinMode(MCPCS, OUTPUT);
+    //MCP2515_UNSELECT();
+//}
+
+///*********************************************************************************************************
+//** Function name:           MCP_CAN
+//** Descriptions:            Public function to declare CAN class, the /CS pin, interrupt pin and the
+//**                          handle to the queue to receive the incoming data.
+//*********************************************************************************************************/
+
+//MCP_CAN::MCP_CAN(INT8U _CS, INT8U _INTPIN)
+//{
+    //MCPCS = _CS;
+    //pinMode(MCPCS, OUTPUT);
+    //MCP2515_UNSELECT();
+    //INTPIN = _INTPIN;
+    //pinMode(INTPIN, INPUT);
+    //// register the interrupt and handler
+    //gpio_set_interrupt(INTPIN, GPIO_INTTYPE_EDGE_NEG, gpio_intr_handler);
+//}
 
 /*********************************************************************************************************
 ** Function name:           begin
 ** Descriptions:            Public function to declare controller initialization parameters.
 *********************************************************************************************************/
-INT8U MCP_CAN::begin(INT8U idmodeset, INT8U speedset, INT8U clockset) {
+INT8U MCP_CAN::begin(INT8U _CS, INT8U _INTPIN, INT8U idmodeset, INT8U speedset, INT8U clockset) {
     INT8U res;
 
+    MCPCS = _CS;
+    pinMode(MCPCS, OUTPUT);
+    MCP2515_UNSELECT();
+    
+    INTPIN = _INTPIN;
+    pinMode(INTPIN, INPUT);
+
+    printf("Setting up spi\n");
     //SPI.begin();
     //bool spi_init(uint8_t bus, spi_mode_t mode, uint32_t freq_divider, bool msb, spi_endianness_t endianness, bool minimal_pins);
-    if (spi_init(USERBUS, (spi_mode_t)idmodeset, SPI_FREQ_DIV_4M, true, SPI_LITTLE_ENDIAN, false)) {
-        return CAN_OK;
-    } else {
-		printf("spi_init failed.\n");
+    if (!spi_init(USERBUS, (spi_mode_t)idmodeset, SPI_FREQ_DIV_4M, true, SPI_LITTLE_ENDIAN, false)) {
+        printf("spi_init failed.\n");
         return CAN_FAILINIT;
     };
 
+    printf("Setting up the MCP2515\n");
     res = mcp2515_init(idmodeset, speedset, clockset);
-    if (res == MCP2515_OK)
+    if (res == MCP2515_OK) {
+        // register the interrupt and handler
+        gpio_set_interrupt(INTPIN, GPIO_INTTYPE_EDGE_NEG, gpio_intr_handler);
         return CAN_OK;
+    }
 
     return CAN_FAILINIT;
 }

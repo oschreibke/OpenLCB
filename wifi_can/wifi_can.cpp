@@ -32,8 +32,6 @@ struct queueHandles qh;
 heartbeat_task ht;
 start_listeners_task slt;
 tcpServer tcpserver;
-// SPI CS pin = 10, MCP2515 interrupt pin 5
-MCP_CAN mcpcan(10, 5);
 
 void heartbeat_task::task() {
     static int i = 0;
