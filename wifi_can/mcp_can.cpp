@@ -4,8 +4,9 @@
   2014 Copyright (c) Cory J. Fowler  All Rights Reserved.
 
   Author: Loovee
-  Contributor: Cory J. Fowler
-  2014-9-16
+  Contributor: Cory J. Fowler 2016-07-01
+  Adapted to ESP8266 (open rtos sdk) by Otto Schreibke Sept 2017.
+  
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
   License as published by the Free Software Foundation; either
@@ -22,12 +23,20 @@
   1301  USA
 */
 
+/*
+ * OSC Sept 2017
+ * redefined the Arduino functions to the corresponding esp-open-rtos functions
+ * modified the constructor and .begin functions to allow deferred configuration of the driver
+*/ 
+
 #include <string.h>
 #include "espressif/esp_common.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
 
+
+// redefine the Arduino functions to match the esp-open-rtos SDK
 #define delay(t) vTaskDelay((t * 1000) / portTICK_PERIOD_MS)
 #define delayMicroseconds(t) vTaskDelay(t / portTICK_PERIOD_MS)
 #define digitalWrite(gpio_bits, bit_value) gpio_write( gpio_bits, bit_value )
@@ -38,12 +47,13 @@
 #include "mcp_can.hpp"
 #include "interrupthandler.h"
 
+// more esp-open-rtos SDK definitions
 //#define spi_readwrite SPI.transfer
 #define USERBUS 1
 #define spi_readwrite(b) spi_transfer_8(USERBUS, b) 
 #define spi_read() spi_readwrite(0x00)
 
-
+// #define DEBUG_MODE
 
 /*********************************************************************************************************
 ** Function name:           mcp2515_reset
@@ -589,7 +599,7 @@ INT8U MCP_CAN::mcp2515_init(const INT8U canIDMode, const INT8U canSpeed, const I
         if(res)
         {
 #if DEBUG_MODE        
-          printf("Returning to Previous Mode Failure...\r\n");
+          printf("Returning to Previous Mode Failure... %d\r\n", res);
 #endif           
           return res;
         }
@@ -803,14 +813,16 @@ INT8U MCP_CAN::begin(INT8U _CS, INT8U _INTPIN, INT8U idmodeset, INT8U speedset, 
     MCPCS = _CS;
     pinMode(MCPCS, OUTPUT);
     MCP2515_UNSELECT();
-    
+
     INTPIN = _INTPIN;
     pinMode(INTPIN, INPUT);
 
     printf("Setting up spi\n");
     //SPI.begin();
     //bool spi_init(uint8_t bus, spi_mode_t mode, uint32_t freq_divider, bool msb, spi_endianness_t endianness, bool minimal_pins);
-    if (!spi_init(USERBUS, (spi_mode_t)idmodeset, SPI_FREQ_DIV_4M, true, SPI_LITTLE_ENDIAN, false)) {
+    if (spi_init(USERBUS, SPI_MODE0, SPI_FREQ_DIV_4M, true, SPI_LITTLE_ENDIAN, false)) {
+        printf("spi init OK\n");
+    } else {
         printf("spi_init failed.\n");
         return CAN_FAILINIT;
     };
@@ -1118,11 +1130,14 @@ INT8U MCP_CAN::sendMsg()
 *********************************************************************************************************/
 INT8U MCP_CAN::sendMsgBuf(INT32U id, INT8U ext, INT8U len, INT8U *buf)
 {
+	printf("sendMsgBuf. id = %d, ext = %d, len = %d\n", id, ext, len);
     INT8U res;
 	
     setMsg(id, 0, ext, len, buf);
+	//printf("sendMsg()\n");
     res = sendMsg();
-    
+ 	//printf("back from sendMsg()\n");
+ 	   
     return res;
 }
 

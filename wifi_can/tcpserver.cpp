@@ -19,6 +19,8 @@
 #define SERVER_PORT 23
 #define MAX_CONN 2
 
+// Global variables
+
 int32_t listenfd;
 int32_t client_sock;
 
@@ -29,7 +31,14 @@ tcpProcessor tcpprocessor;
 tcpListener tcplistener;
 canProcessor canprocessor;
 
-//void tcpServer(void *pvParameters) {
+/*
+ * Establish a TCP server, and bind it with the local port.
+ * Establish TCP server interception
+ * Start the TCP listener and processor tasks
+ * Set up the can interface 
+ *   - if successful, start the can processor task.
+ * 
+*/ 
 void tcpServer::task() {
     // 1. Establish a TCP server, and bind it with the local port.
 
@@ -84,15 +93,14 @@ void tcpServer::task() {
         }
     } while(ret != 0);
 
-    //xTaskCreate(&tcpListener, "TCP listener", configMINIMAL_STACK_SIZE, NULL, 3, NULL);
-    //xTaskCreate(&tcpProcessor, "TCP Processor", configMINIMAL_STACK_SIZE, NULL, 2, NULL);
-    tcplistener.task_create("TCP listener", configMINIMAL_STACK_SIZE, 3);
-    tcpprocessor.task_create("TCP Processor", configMINIMAL_STACK_SIZE, 2);
+    tcplistener.task_create("TCP listener", configMINIMAL_STACK_SIZE * 2, 3);
+    tcpprocessor.task_create("TCP Processor", configMINIMAL_STACK_SIZE * 2, 2);
 
     printf("Setting up the can interface.\n");
-    if(mcpcan.begin(15, 5, MCP_ANY, CAN_125KBPS, MCP_8MHZ) == CAN_OK) {
+    if(mcpcan.begin(4, 5, MCP_ANY, CAN_125KBPS, MCP_8MHZ) == CAN_OK) {
         printf("Can Init OK, starting can procesor task\n");
-        canprocessor.task_create("CAN Processor", configMINIMAL_STACK_SIZE, 2);
+        mcpcan.setMode(MCP_NORMAL);
+        canprocessor.task_create("CAN Processor", configMINIMAL_STACK_SIZE * 2, 2);
     } else {
         printf("Can init failed\n");
     }
@@ -105,7 +113,12 @@ void tcpServer::task() {
     vTaskDelete(NULL);
 }
 
-//void tcpListener(void * pvParameters) {
+/*
+ * Wait for a client to connect
+ * Once a message arrives, check it is a valid CANASCII message. Format :X[0-9A-F]{1:8}N{[0-9A-F]{0:16}};
+ * If OK, queue for processing 
+ *  
+*/ 
 void tcpListener::task() {
     printf("ESP8266 TCP server task > listen ok\n");
 
@@ -134,7 +147,7 @@ void tcpListener::task() {
             printf("ESP8266 TCP server task > read data success %d!\nESP8266 TCP server task > %s\n", recbytes, recv_buf);
 
             // preliminary validation:
-            // only pass on messages with format :X\[0-9A-F]{1:8}N{[0-9A-F]{0:16}};
+            // only pass on messages with format :X[0-9A-F]{1:8}N{[0-9A-F]{0:16}};
             // no regex so do this by hand
 
             char* startPos = recv_buf;
@@ -189,6 +202,9 @@ void tcpListener::task() {
     vTaskDelete(NULL);
 }
 
+/*
+ * Convert from a hex character to binary 
+*/
 uint8_t tcpProcessor::hex2int(char* hexChar) {
     const char hexDigits[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
     int i;
@@ -201,19 +217,22 @@ uint8_t tcpProcessor::hex2int(char* hexChar) {
     return i;
 };
 
-//void tcpProcessor(void * pvParameters) {
+/*
+ * decode a queued CANASCII message into a CAN message. The format is valid, otherwise it wouldn't have been queued
+ * pass the CAN message to the MCP2515 
+*/ 
+
 void tcpProcessor::task() {
     char* pCanAsciiMessage;
     int hx;
     bool fail = false;
     int32_t canId;
     int32_t dataLen;
-    char canData[8];
+    uint8_t canData[8];
 
     while(1) {
         if (xQueueReceive(qh.xQueueWiFiToCan, &pCanAsciiMessage, portMAX_DELAY) == pdPASS) {
-            printf("Received message\n");
-            printf("Content %s\n", pCanAsciiMessage);
+            printf("Dequeued CANASCII message %s\n", pCanAsciiMessage);
             canId = 0;
             dataLen = 0;
             fail = false;
@@ -234,10 +253,11 @@ void tcpProcessor::task() {
             if (!fail) {
                 // add the data
                 dataLen = 0;
-                for (char* p = strchr(pCanAsciiMessage + 2, 'N') +1; p < strchr(pCanAsciiMessage + 2, ';'); p += 2) {
+                for (char* p = strchr(pCanAsciiMessage + 2, 'N') +1; p < strchr(pCanAsciiMessage + 2, ';');) {
                     canData[dataLen] = '\0';
                     for (int i = 0; i < 2; i++) {
-                        hx = hex2int(p);
+                        hx = hex2int(p++);
+                        //printf("Encoding %c = %d\n", *p-1, hx);
                         if (hx < 16) {
                             canData[dataLen] = (canData[dataLen] << 4) + hx;
                         } else { // Not a hex digit - discard the message
@@ -252,7 +272,17 @@ void tcpProcessor::task() {
 
             if (!fail) {
                 // put the message to CAN
-                printf("Writing message to the CAN interface. ID = %d, data length = %d.\n", canId, dataLen);
+                printf("Writing message to the CAN interface. ID = %d, data length = %d, dataBytes ", canId, dataLen);
+                for(int i = 0; i < dataLen; i++){
+					printf("%0X ", canData[i]);
+					}
+                printf("\n");					
+                INT8U res = mcpcan.sendMsgBuf(canId, CAN_EXTID, dataLen, &canData[0]);
+                if (res == CAN_OK) {
+                    printf("sendMsgBuf OK\r\n");
+                } else {
+                    printf("%s: sendMsgBuf failed rc=%d\n", __func__, res);
+                }
             }
 
             free(pCanAsciiMessage);
@@ -264,38 +294,63 @@ void tcpProcessor::task() {
     vTaskDelete(NULL);
 }
 
+/*
+ * encode a byte to two Hex Characters 
+ * Parameters:
+ *    byte: the octet to encode
+ *    ptr:  the buffer location of the first result character
+*/ 
 void canProcessor::byte2hex(uint8_t byte, char* ptr) {
     const char hexDigits[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
+    //printf("byte2hex %0X \n", byte);
     *ptr = hexDigits[byte >> 4];
     *(ptr + 1) = hexDigits[byte & 0x0F];
     return;
 }
 
+/*
+ * Encode a CAN message to the corresponding CANASCII format, and pass to the telnet client
+*/ 
+
 void canProcessor::task() {
     CAN_MESSAGE* pCanMessage;
-    char canAsciiMessage[CAN_ASCII_MESSAGE_LENGTH];
     char* p;
+    char canAsciiMessage[CAN_ASCII_MESSAGE_LENGTH];
+
     while (1) {
+		printf("Check message queue\n");
         if (xQueueReceive(qh.xQueueCanToWiFi, &pCanMessage, portMAX_DELAY) == pdPASS) {
+			vTaskDelay(0);
+            printf("Dequeued CAN message.\n");
+            printf("id = %d, length = %d\n", pCanMessage->id, pCanMessage->len);
             strcpy(canAsciiMessage, ":X");
             p = &canAsciiMessage[2];
+            //printf("Encoding id\n");
             for (int i = 3; i >= 0; i--) {
-                byte2hex(pCanMessage->id / (8 * i), p);
+                byte2hex(pCanMessage->id >> (8 * i), p);
                 p += 2;
             }
             *p++ = 'N';
+            //printf("Encoding data bytes\n");
             for (int i = 0; i < pCanMessage->len; i++) {
                 byte2hex(pCanMessage->dataBytes[i], p);
                 p += 2;
             }
             *p++ = ';';
+            *p++ = '\n';
             *p = '\0';
+
+            free(pCanMessage);
+
+            printf("Writing CanASCII message %s to network\n", canAsciiMessage);
+            if	(write(client_sock, &canAsciiMessage, strlen(canAsciiMessage) + 1) < 0) {
+                printf("Write to TCP failed\n");
+            } else {
+                printf("Write to TCP OK\n");
+            }
         }
-        free(pCanMessage);
-        if	(write(client_sock, &canAsciiMessage, strlen(canAsciiMessage) + 1) < 0){
-			printf("Write to TCP failed\n");
-}
     }
+    
     // prevent bad things happening if we drop off the bottom
     printf("Deleting task %s.\n", __func__);
     vTaskDelete(NULL);

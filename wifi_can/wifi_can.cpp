@@ -1,18 +1,57 @@
-/* A very simple OTA example
+/*
+ * wifi_can.cpp
+ * 
+ * Copyright 2017 Otto Schreibke <oschreibke@gmail.com>
+ * 
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ * MA 02110-1301, USA.
+ * 
+ * The license can be found at https://www.gnu.org/licenses/gpl-3.0.txt
+ * 
+ * 
+ */
+ 
+/* A Telnet to CAN gateway.
+ * also includes a very simple OTA (over the air) function.
  *
- * Tries to run both a TFTP client and a TFTP server simultaneously, either will accept a TTP firmware and update it.
- *
- * Not a realistic OTA setup, this needs adapting (choose either client or server) before you'd want to use it.
- *
+ * The gateway reads CANASCII format messages from the Telnet interface, and sends them to a MCP2515 can interface module, and vice versa.
+ * The gateway was concieved to communicate between JMRI and an OpenLCB installation, as such only CAN-Extended messages are passed. 
+ * Credit where its due: the MCP2515 driver was originally developed by Cory J Fowler for Arduino.
+ * 
+ * The OTA facility runs a TFTP server, it will accept a TTP firmware and update it.
  * For more information about esp-open-rtos OTA see https://github.com/SuperHouse/esp-open-rtos/wiki/OTA-Update-Configuration
  *
- * NOT SUITABLE TO PUT ON THE INTERNET OR INTO A PRODUCTION ENVIRONMENT!!!!
+ * N.B. TFTP HAS NO AUTHENTICATION. THEREFORE IS NOT SUITABLE TO PUT ON THE INTERNET OR INTO A PRODUCTION ENVIRONMENT!!!!
+ * 
+ * To perform an OTA flash:
+ * 
+ *    CD <outerfolders>/wifi_can
+ *    make -j4 rebuild
+ *    tftp <ESP8266's ip address>
+ *    bin
+ *    put firmware/wifi_can.bin firmware.bin
+ *    quit
+ * 
  */
 
 #include <string.h>
 #include "espressif/esp_common.h"
 #include "esp/uart.h"
 #include "FreeRTOS.h"
+
+
 #include "task.hpp"
 #include "esp8266.h"
 #include "ssid_config.h"
@@ -28,27 +67,30 @@
 
 #define TELNET_PORT 23
 
+// global variables
 struct queueHandles qh;
 heartbeat_task ht;
 start_listeners_task slt;
 tcpServer tcpserver;
 
+/*
+ * Heartbeat task. writes to the serial console every 10 seconds 
+*/ 
 void heartbeat_task::task() {
-    static int i = 0;
-    //char * pcWriteBuffer = (char *) malloc(1024);
+    static uint i = 0;
 
     while(1) {
 
         printf("Heartbeat %d\n", ++i);
-
-        // disable this when in use
-        //vTaskList(pcWriteBuffer);
-        //printf("Task List\n%s\n\n", pcWriteBuffer);
-
         vTaskDelay(10000 / portTICK_PERIOD_MS);
     }
 }
 
+
+/*
+ * Check the status of the wifi connection. The ESP8266 will take some time to connect.
+ * Without it we can't do much. 
+*/ 
 bool start_listeners_task::check_wifi_connection() {
     uint8_t status = sdk_wifi_station_get_connect_status();
 
@@ -80,7 +122,11 @@ bool start_listeners_task::check_wifi_connection() {
 }
 
 
-
+/*
+ * Wait for an IP connection
+ * Once we have it, start the OTA TFTP server and the Telnet task, then terminate gracefully
+ * The spawned tasks will live on. 
+*/ 
 
 void start_listeners_task::task() {
 
@@ -117,7 +163,16 @@ void start_listeners_task::task() {
 
 }
 
-
+/*
+ * Application initialisation
+ * 
+ * Start the heartbeat task
+ * connect to the local WiFi network
+ * create the queues:
+ *      xQueueWiFiToCan - holds CANASCII messages from the Telnet client
+ *      xQueueCanToWiFi - holds CAN messages from the MCP2515
+ * create the start listeners task 
+*/ 
 
 extern "C" void user_init(void) {
     uart_set_baud(0, 115200);
@@ -135,14 +190,8 @@ extern "C" void user_init(void) {
     }
 
     printf("starting heartbeat task\n");
-    //xTaskCreate(&heartbeat_task, "heartbeat", configMINIMAL_STACK_SIZE, NULL, 2, NULL);
     ht.task_create("heartbeat", configMINIMAL_STACK_SIZE, 2);
 
-    //struct sdk_station_config config = {
-        //.ssid = WIFI_SSID,
-        //.password = WIFI_PASS,
-        //.bssid_set = 0
-    //};
     struct sdk_station_config config;
     strcpy((char*)config.ssid, WIFI_SSID);
     strcpy((char*)config.password, WIFI_PASS);
@@ -150,28 +199,24 @@ extern "C" void user_init(void) {
 
     printf("Connecting to %s.\n", config.ssid);
 
-    //sdk_wifi_station_set_auto_connect(true);
     sdk_wifi_set_opmode(STATION_MODE);
     sdk_wifi_station_set_config(&config);
 
-    //printf("configUSE_TRACE_FACILITY %d, configUSE_STATS_FORMATTING_FUNCTIONS %d\n", configUSE_TRACE_FACILITY, configUSE_STATS_FORMATTING_FUNCTIONS);
-
     printf("Creating queues\n");
 
-    qh.xQueueWiFiToCan = xQueueCreate(10, sizeof(char*));
+    qh.xQueueWiFiToCan = xQueueCreate(20, sizeof(char*));
 
     if( qh.xQueueWiFiToCan == NULL ) {
         printf("Could not create xQueueWiFiToCan\n");
     }
 
-    qh.xQueueCanToWiFi = xQueueCreate(10, sizeof(CAN_MESSAGE));
+    qh.xQueueCanToWiFi = xQueueCreate(20, sizeof(CAN_MESSAGE*));
 
     if( qh.xQueueCanToWiFi == NULL ) {
         printf("Could not create xQueueCanToWiFi\n");
     }
 
     printf("starting listener (TFTP and Telnet) tasks.\n");
-    //xTaskCreate(&start_listeners_task, "listener starter", configMINIMAL_STACK_SIZE, NULL, 2, NULL);
     slt.task_create("listener starter", configMINIMAL_STACK_SIZE, 2);
     
     printf("user_init complete\n");

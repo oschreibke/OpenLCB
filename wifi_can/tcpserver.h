@@ -3,14 +3,15 @@
 
 
 #define TCP_MESSAGE_LENGTH 128
-#define CAN_ASCII_MESSAGE_LENGTH 29
+#define CAN_ASCII_MESSAGE_LENGTH 30
 
 struct queueHandles{
     QueueHandle_t xQueueWiFiToCan, xQueueCanToWiFi;
 };
 
+// Class definitions
+// Note: there is no canListener, that functionality is provided by the interrupt handler
 
-//void tcpServer(void *pvParameters);
 class tcpServer: public esp_open_rtos::thread::task_t
 {
 public:
@@ -19,7 +20,6 @@ private:
     void task();
 };
 
-//void tcpListener(void * pvParameters);
 class tcpListener: public esp_open_rtos::thread::task_t
 {
 public:
@@ -28,7 +28,6 @@ private:
     void task();
 };
 
-//void tcpProcessor(void * pvParameters); 
 class tcpProcessor: public esp_open_rtos::thread::task_t
 {
 public:
