@@ -93,14 +93,15 @@ void tcpServer::task() {
         }
     } while(ret != 0);
 
+    printf("TCP listener OK, starting listener task\n");
     tcplistener.task_create("TCP listener", configMINIMAL_STACK_SIZE * 2, 3);
-    tcpprocessor.task_create("TCP Processor", configMINIMAL_STACK_SIZE * 2, 2);
 
     printf("Setting up the can interface.\n");
-    if(mcpcan.begin(4, 5, MCP_ANY, CAN_125KBPS, MCP_8MHZ) == CAN_OK) {
-        printf("Can Init OK, starting can procesor task\n");
+    if(mcpcan.begin(CAN_CS, CAN_INT, MCP_ANY, CAN_125KBPS, MCP_8MHZ) == CAN_OK) {
+        printf("Can Init OK, starting Procesor tasks\n");
         mcpcan.setMode(MCP_NORMAL);
         canprocessor.task_create("CAN Processor", configMINIMAL_STACK_SIZE * 2, 2);
+        tcpprocessor.task_create("TCP Processor", configMINIMAL_STACK_SIZE * 2, 2);
     } else {
         printf("Can init failed\n");
     }
@@ -318,9 +319,9 @@ void canProcessor::task() {
     char canAsciiMessage[CAN_ASCII_MESSAGE_LENGTH];
 
     while (1) {
-		printf("Check message queue\n");
+		printf("Check queue CanToWiFi\n");
+		printf("%u messages waiting\n", uxQueueMessagesWaiting(qh.xQueueCanToWiFi));
         if (xQueueReceive(qh.xQueueCanToWiFi, &pCanMessage, portMAX_DELAY) == pdPASS) {
-			vTaskDelay(0);
             printf("Dequeued CAN message.\n");
             printf("id = %d, length = %d\n", pCanMessage->id, pCanMessage->len);
             strcpy(canAsciiMessage, ":X");

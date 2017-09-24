@@ -5,6 +5,9 @@
 #define TCP_MESSAGE_LENGTH 128
 #define CAN_ASCII_MESSAGE_LENGTH 30
 
+#define CAN_INT 4
+#define CAN_CS  5
+
 struct queueHandles{
     QueueHandle_t xQueueWiFiToCan, xQueueCanToWiFi;
 };

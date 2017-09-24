@@ -44,6 +44,15 @@
  *    put firmware/wifi_can.bin firmware.bin
  *    quit
  * 
+ * Connections:
+ *    ESP8266 (ESP-12E)     MCP2515
+ *    -----------------     -------
+ *    GPIO04                INT
+ *    GPIO05                CS        -- not using GPIO15 as CS; it messes up the booting
+ *    GPIO12  (MISO)        SO
+ *    GPIO13  (MOSI)        SI
+ *    GPIO14  (CLK)         SCK
+ * 
  */
 
 #include <string.h>
@@ -145,7 +154,6 @@ void start_listeners_task::task() {
         vTaskDelay(1000 / portTICK_PERIOD_MS);
         sdk_wifi_get_ip_info(STATION_IF, &ipconfig);
     }
-    //printf("Ip addr: %d.%d.%d.%d\n", ipconfig.ip.addr >>24, (ipconfig.ip.addr >>12) & 0xFF, (ipconfig.ip.addr >>8) & 0xFF, ipconfig.ip.addr & 0xFF);
 
     printf("Starting TFTP server. Listening on %d.%d.%d.%d:%d\n\n", ipconfig.ip.addr & 0xFF, (ipconfig.ip.addr >>8) & 0xFF, (ipconfig.ip.addr >>16) & 0xFF, ipconfig.ip.addr >>24, TFTP_PORT);
     ota_tftp_init_server(TFTP_PORT);
@@ -154,13 +162,11 @@ void start_listeners_task::task() {
     // start the telnet task if the queues have been successfully created
     if (qh.xQueueWiFiToCan != NULL && qh.xQueueCanToWiFi != NULL) {
         printf("starting telnet task\n");
-        //xTaskCreate(tcpServer, "telnetTask", 512, NULL, 3, NULL);
         tcpserver.task_create("telnetTask", 512, 3);
     }
 
     printf("Terminating task 'start_ota_ftp_task' (me)\n");
     vTaskDelete(NULL);
-
 }
 
 /*
