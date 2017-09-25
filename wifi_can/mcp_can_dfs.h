@@ -4,8 +4,9 @@
   2014 Copyright (c) Cory J. Fowler  All Rights Reserved.
 
   Author:Loovee
-  Contributor: Cory J. Fowler
-  2014-1-16
+  Contributor: Cory J. Fowler 2014-1-16
+  Adapted to ESP8266 (open rtos sdk) by Otto Schreibke Sept 2017.
+  
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
   License as published by the Free Software Foundation; either
@@ -21,6 +22,12 @@
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-
   1301  USA
 */
+
+/*
+ * OSC Sept 2017
+ * Changed the Arduino includes to the corresponding esp-open-rtos includes
+*/ 
+
 #ifndef _MCP2515DFS_H_
 #define _MCP2515DFS_H_
 
@@ -47,7 +54,7 @@
 #endif
 
 // if print debug information
-#define DEBUG_MODE 1
+//#define DEBUG_MODE 1
 
 /*
  *   Begin mt

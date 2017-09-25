@@ -1,6 +1,27 @@
-
-
-// from the espressif programming guide (3.3.3)
+/*
+ * tcpserver.cpp
+ * 
+ * Copyright 2017 Otto Schreibke <oschreibke@gmail.com>
+ * 
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ * MA 02110-1301, USA.
+ * 
+ * The license can be found at https://www.gnu.org/licenses/gpl-3.0.txt
+ * 
+ * 
+ */
 
 // see https://gridconnect.com/media/documentation/grid_connect/CAN_USB232_UM.pdf for details of the can-ascii message format
 
@@ -80,7 +101,7 @@ void tcpServer::task() {
         }
     } while(ret != 0);
 
-    printf("ESP8266 TCP server task > port:%d\n",ntohs(server_addr.sin_port));
+    printf("ESP8266 TCP server task > port:%d\n", ntohs(server_addr.sin_port));
 
     // Establish TCP server interception:
 
@@ -96,7 +117,7 @@ void tcpServer::task() {
     printf("TCP listener OK, starting listener task\n");
     tcplistener.task_create("TCP listener", configMINIMAL_STACK_SIZE * 2, 3);
 
-    printf("Setting up the can interface.\n");
+    //printf("Setting up the can interface.\n");
     if(mcpcan.begin(CAN_CS, CAN_INT, MCP_ANY, CAN_125KBPS, MCP_8MHZ) == CAN_OK) {
         printf("Can Init OK, starting Procesor tasks\n");
         mcpcan.setMode(MCP_NORMAL);
@@ -124,7 +145,7 @@ void tcpServer::task() {
         vTaskDelay(100000 / portTICK_PERIOD_MS);
     }
 
-    // prevent bad things happening if we drop off the bottom
+    // prevent bad things happening if we drop off the bottom (which we shouldn't)
     printf("Deleting task %s.\n", __func__);
     vTaskDelete(NULL);
 }
@@ -150,7 +171,7 @@ void tcpListener::task() {
     char canAsciiMessage[CAN_ASCII_MESSAGE_LENGTH];  
 
     for (;;) {
-        printf("ESP8266 TCP server task > wait client\n");
+        //printf("ESP8266 TCP server task > wait client\n");
         /*block here waiting remote connect request*/
         if ((client_sock = accept(listenfd, (struct sockaddr *)&remote_addr, (socklen_t *)&len)) < 0) {
             printf("ESP8266 TCP server task > accept fail\n");
@@ -161,7 +182,7 @@ void tcpListener::task() {
 
         while ((recbytes = read(client_sock, &recv_buf, TCP_MESSAGE_LENGTH)) > 0) {
             recv_buf[recbytes] = 0;
-            printf("ESP8266 TCP server task > read data success %d!\nESP8266 TCP server task > %s\n", recbytes, recv_buf);
+            //printf("ESP8266 TCP server task > read data success %d!\nESP8266 TCP server task > %s\n", recbytes, recv_buf);
 
             // preliminary validation:
             // only pass on messages with format :X[0-9A-F]{1:8}N{[0-9A-F]{0:16}};
@@ -189,7 +210,7 @@ void tcpListener::task() {
                                         for (char* p = colonPos; p <= semicolonPos; p++) {
                                             *pCanMsg++ = *p;
                                         }
-                                        printf("queueing message %s\n", canAsciiMessage);
+                                        //printf("queueing message %s\n", canAsciiMessage);
                                         if(xQueueSendToBack(qh.xQueueWiFiToCan, &canAsciiMessage, 500 / portTICK_PERIOD_MS)!= pdPASS ) {
                                             printf("Queue xQueueWiFiToCan full, discarding message\n");
                                         }
@@ -213,7 +234,7 @@ void tcpListener::task() {
         }
     }
 
-    // prevent bad things happening if we drop off the bottom
+    // prevent bad things happening if we drop off the bottom (which we shouldn't)
     printf("Deleting task %s.\n", __func__);
     vTaskDelete(NULL);
 }
@@ -248,7 +269,7 @@ void tcpProcessor::task() {
 
     while(1) {
         if (xQueueReceive(qh.xQueueWiFiToCan, &canAsciiMessage, portMAX_DELAY) == pdPASS) {
-            printf("Dequeued CANASCII message %s\n", canAsciiMessage);
+            //printf("Dequeued CANASCII message %s\n", canAsciiMessage);
             canId = 0;
             dataLen = 0;
             fail = false;
@@ -288,14 +309,14 @@ void tcpProcessor::task() {
 
             if (!fail) {
                 // put the message to CAN
-                printf("Writing message to the CAN interface. ID = %d, data length = %d, dataBytes ", canId, dataLen);
+                //printf("Writing message to the CAN interface. ID = %d, data length = %d, dataBytes ", canId, dataLen);
                 for(int i = 0; i < dataLen; i++){
 					printf("%0X ", canData[i]);
 					}
                 printf("\n");					
                 INT8U res = mcpcan.sendMsgBuf(canId, CAN_EXTID, dataLen, &canData[0]);
                 if (res == CAN_OK) {
-                    printf("sendMsgBuf OK\r\n");
+                    ; //printf("sendMsgBuf OK\r\n");
                 } else {
                     printf("%s: sendMsgBuf failed rc=%d\n", __func__, res);
                 }
@@ -332,7 +353,7 @@ void canProcessor::task() {
     char canAsciiMessage[CAN_ASCII_MESSAGE_LENGTH];
 
     while (1) {
-		printf("Check queue CanToWiFi\n");
+		//printf("Check queue CanToWiFi\n");
 		//printf("%u messages waiting\n", uxQueueMessagesWaiting(qh.xQueueCanToWiFi));
         if (xQueueReceive(qh.xQueueCanToWiFi, &canMessage, portMAX_DELAY) == pdPASS) {
             printf("Dequeued CAN message.\n");
@@ -354,7 +375,7 @@ void canProcessor::task() {
             *p++ = ';';
             *p = '\n';
 
-            printf("Writing CanASCII message %s to network\n", canAsciiMessage);
+            //printf("Writing CanASCII message %s to network\n", canAsciiMessage);
             if	(write(client_sock, canAsciiMessage, strlen(canAsciiMessage) + 1) < 0) {
                 printf("Write to TCP failed\n");
             } else {
