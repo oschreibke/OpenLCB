@@ -65,6 +65,7 @@
 #include "esp8266.h"
 #include "ssid_config.h"
 #include <lwip/api.h>
+#include "lwip/inet.h"
 
 #include "ota-tftp.h"
 #include "rboot-api.h"
@@ -155,7 +156,7 @@ void start_listeners_task::task() {
         sdk_wifi_get_ip_info(STATION_IF, &ipconfig);
     }
 
-    printf("Starting TFTP server. Listening on %d.%d.%d.%d:%d\n\n", ipconfig.ip.addr & 0xFF, (ipconfig.ip.addr >>8) & 0xFF, (ipconfig.ip.addr >>16) & 0xFF, ipconfig.ip.addr >>24, TFTP_PORT);
+    printf("Starting TFTP server. Listening on %s, port %d.\n\n", inet_ntoa(ipconfig.ip.addr), TFTP_PORT);
     ota_tftp_init_server(TFTP_PORT);
     printf("TFTP server started\n");
 
@@ -210,13 +211,13 @@ extern "C" void user_init(void) {
 
     printf("Creating queues\n");
 
-    qh.xQueueWiFiToCan = xQueueCreate(20, sizeof(char*));
+    qh.xQueueWiFiToCan = xQueueCreate(20, CAN_ASCII_MESSAGE_LENGTH);
 
     if( qh.xQueueWiFiToCan == NULL ) {
         printf("Could not create xQueueWiFiToCan\n");
     }
 
-    qh.xQueueCanToWiFi = xQueueCreate(20, sizeof(CAN_MESSAGE*));
+    qh.xQueueCanToWiFi = xQueueCreate(20, sizeof(CAN_MESSAGE));
 
     if( qh.xQueueCanToWiFi == NULL ) {
         printf("Could not create xQueueCanToWiFi\n");

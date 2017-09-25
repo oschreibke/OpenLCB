@@ -37,8 +37,8 @@
 
 
 // redefine the Arduino functions to match the esp-open-rtos SDK
-#define delay(t) vTaskDelay((t * 1000) / portTICK_PERIOD_MS)
-#define delayMicroseconds(t) vTaskDelay(t / portTICK_PERIOD_MS)
+#define delay(t) vTaskDelay((t) / portTICK_PERIOD_MS)
+#define delayMicroseconds(t) vTaskDelay((t) / portTICK_PERIOD_MS / 1000)
 #define digitalWrite(gpio_bits, bit_value) gpio_write( gpio_bits, bit_value )
 #define pinMode(gpio, mode) gpio_enable(gpio, mode);
 #define MCP2515_SELECT() gpio_write(MCPCS, LOW)

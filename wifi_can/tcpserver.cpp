@@ -105,6 +105,21 @@ void tcpServer::task() {
     } else {
         printf("Can init failed\n");
     }
+    
+    /*
+    // test: queue a can message
+    CAN_MESSAGE canMsg;
+    
+    for (uint8_t i = 0; i<10; i++){
+		canMsg.id = 0x2000;
+		canMsg.ext = CAN_EXTID;
+		canMsg.len = 1;
+		canMsg.dataBytes[0] = i;
+		if(xQueueSendToBackFromISR(qh.xQueueCanToWiFi, &canMsg, NULL)!= pdPASS ) {
+			printf("Queue xQueueWiFiToCan full, discarding message\n");
+		}
+	}
+    */
     while(1) {
         vTaskDelay(100000 / portTICK_PERIOD_MS);
     }
@@ -131,7 +146,8 @@ void tcpListener::task() {
     int32_t len = sizeof(struct sockaddr_in);
     int32_t recbytes;
 
-    char *recv_buf = (char *)os_zalloc(TCP_MESSAGE_LENGTH);
+    char recv_buf[TCP_MESSAGE_LENGTH];
+    char canAsciiMessage[CAN_ASCII_MESSAGE_LENGTH];  
 
     for (;;) {
         printf("ESP8266 TCP server task > wait client\n");
@@ -143,7 +159,7 @@ void tcpListener::task() {
 
         printf("ESP8266 TCP server task > Client from %s %d\n", inet_ntoa(remote_addr.sin_addr), htons(remote_addr.sin_port));
 
-        while ((recbytes = read(client_sock, recv_buf, TCP_MESSAGE_LENGTH)) > 0) {
+        while ((recbytes = read(client_sock, &recv_buf, TCP_MESSAGE_LENGTH)) > 0) {
             recv_buf[recbytes] = 0;
             printf("ESP8266 TCP server task > read data success %d!\nESP8266 TCP server task > %s\n", recbytes, recv_buf);
 
@@ -151,12 +167,12 @@ void tcpListener::task() {
             // only pass on messages with format :X[0-9A-F]{1:8}N{[0-9A-F]{0:16}};
             // no regex so do this by hand
 
-            char* startPos = recv_buf;
+            char* startPos = &recv_buf[0];
             char* colonPos = NULL;
             char* nPos = NULL;
             char* semicolonPos = NULL;
 
-            while ((uint8_t)(startPos - recv_buf) < strlen(recv_buf) && (colonPos = strchr(startPos, ':')) != NULL) {                                            // found a colon
+            while ((uint8_t)(startPos - &recv_buf[0]) < strlen(recv_buf) && (colonPos = strchr(startPos, ':')) != NULL) {  // found a colon
                 //printf("got :\n");
                 if(strchr(colonPos + 1, 'X') !=  NULL) {                                                    // followed immediately by an X
                     //printf("Got X\n");
@@ -168,8 +184,8 @@ void tcpListener::task() {
                                 if (nPos - colonPos -2 > 0 && nPos - colonPos -2 <= 8) {                    // with 1-8 characters between X and N
                                     if (semicolonPos - nPos - 1 <= 16 && ((semicolonPos - nPos - 1) % 2) == 0) {  // max 16 data nybbles, in pairs
                                         // looks good, queue the message
-                                        char* canAsciiMessage = (char *)os_zalloc(CAN_ASCII_MESSAGE_LENGTH);
-                                        char* pCanMsg = canAsciiMessage;
+                                        memset(&canAsciiMessage, '\0', CAN_ASCII_MESSAGE_LENGTH);
+                                        char* pCanMsg = &canAsciiMessage[0];
                                         for (char* p = colonPos; p <= semicolonPos; p++) {
                                             *pCanMsg++ = *p;
                                         }
@@ -197,7 +213,6 @@ void tcpListener::task() {
         }
     }
 
-    free(recv_buf);
     // prevent bad things happening if we drop off the bottom
     printf("Deleting task %s.\n", __func__);
     vTaskDelete(NULL);
@@ -224,7 +239,7 @@ uint8_t tcpProcessor::hex2int(char* hexChar) {
 */ 
 
 void tcpProcessor::task() {
-    char* pCanAsciiMessage;
+    char canAsciiMessage[CAN_ASCII_MESSAGE_LENGTH];
     int hx;
     bool fail = false;
     int32_t canId;
@@ -232,20 +247,20 @@ void tcpProcessor::task() {
     uint8_t canData[8];
 
     while(1) {
-        if (xQueueReceive(qh.xQueueWiFiToCan, &pCanAsciiMessage, portMAX_DELAY) == pdPASS) {
-            printf("Dequeued CANASCII message %s\n", pCanAsciiMessage);
+        if (xQueueReceive(qh.xQueueWiFiToCan, &canAsciiMessage, portMAX_DELAY) == pdPASS) {
+            printf("Dequeued CANASCII message %s\n", canAsciiMessage);
             canId = 0;
             dataLen = 0;
             fail = false;
 
             // build the can id
-            for(char* p = pCanAsciiMessage + 2; p < strchr(pCanAsciiMessage + 2, 'N'); p++) {
+            for(char* p = &canAsciiMessage[2]; p < strchr(&canAsciiMessage[2], 'N'); p++) {
                 hx = hex2int(p);
 
                 if (hx < 16) {
                     canId = (canId * 16) + hx;
                 } else { // Not a hex digit - discard the message
-                    printf("Non hex character encountered - discarding message (%s)\n", pCanAsciiMessage);
+                    printf("Non hex character encountered - discarding message (%s)\n", canAsciiMessage);
                     fail = true;
                     break;
                 }
@@ -254,15 +269,15 @@ void tcpProcessor::task() {
             if (!fail) {
                 // add the data
                 dataLen = 0;
-                for (char* p = strchr(pCanAsciiMessage + 2, 'N') +1; p < strchr(pCanAsciiMessage + 2, ';');) {
-                    canData[dataLen] = '\0';
+                memset(&canData, '\0', 8);
+                for (char* p = strchr(&canAsciiMessage[2], 'N') +1; p < strchr(&canAsciiMessage[2], ';');) {
                     for (int i = 0; i < 2; i++) {
                         hx = hex2int(p++);
                         //printf("Encoding %c = %d\n", *p-1, hx);
                         if (hx < 16) {
                             canData[dataLen] = (canData[dataLen] << 4) + hx;
                         } else { // Not a hex digit - discard the message
-                            printf("Non hex character encountered - discarding message (%s)\n", pCanAsciiMessage);
+                            printf("Non hex character encountered - discarding message (%s)\n", canAsciiMessage);
                             fail = true;
                             break;
                         }
@@ -285,12 +300,10 @@ void tcpProcessor::task() {
                     printf("%s: sendMsgBuf failed rc=%d\n", __func__, res);
                 }
             }
-
-            free(pCanAsciiMessage);
         }
     }
 
-    // prevent bad things happening if we drop off the bottom
+    // prevent bad things happening if we drop off the bottom (which we shouldn't)
     printf("Deleting task %s.\n", __func__);
     vTaskDelete(NULL);
 }
@@ -314,37 +327,35 @@ void canProcessor::byte2hex(uint8_t byte, char* ptr) {
 */ 
 
 void canProcessor::task() {
-    CAN_MESSAGE* pCanMessage;
+    CAN_MESSAGE canMessage;
     char* p;
     char canAsciiMessage[CAN_ASCII_MESSAGE_LENGTH];
 
     while (1) {
 		printf("Check queue CanToWiFi\n");
-		printf("%u messages waiting\n", uxQueueMessagesWaiting(qh.xQueueCanToWiFi));
-        if (xQueueReceive(qh.xQueueCanToWiFi, &pCanMessage, portMAX_DELAY) == pdPASS) {
+		//printf("%u messages waiting\n", uxQueueMessagesWaiting(qh.xQueueCanToWiFi));
+        if (xQueueReceive(qh.xQueueCanToWiFi, &canMessage, portMAX_DELAY) == pdPASS) {
             printf("Dequeued CAN message.\n");
-            printf("id = %d, length = %d\n", pCanMessage->id, pCanMessage->len);
+            printf("id = %d, length = %d\n", canMessage.id, canMessage.len);
+            memset(&canAsciiMessage, '\0', CAN_ASCII_MESSAGE_LENGTH);
             strcpy(canAsciiMessage, ":X");
             p = &canAsciiMessage[2];
             //printf("Encoding id\n");
             for (int i = 3; i >= 0; i--) {
-                byte2hex(pCanMessage->id >> (8 * i), p);
+                byte2hex(canMessage.id >> (8 * i), p);
                 p += 2;
             }
             *p++ = 'N';
             //printf("Encoding data bytes\n");
-            for (int i = 0; i < pCanMessage->len; i++) {
-                byte2hex(pCanMessage->dataBytes[i], p);
+            for (int i = 0; i < canMessage.len; i++) {
+                byte2hex(canMessage.dataBytes[i], p);
                 p += 2;
             }
             *p++ = ';';
-            *p++ = '\n';
-            *p = '\0';
-
-            free(pCanMessage);
+            *p = '\n';
 
             printf("Writing CanASCII message %s to network\n", canAsciiMessage);
-            if	(write(client_sock, &canAsciiMessage, strlen(canAsciiMessage) + 1) < 0) {
+            if	(write(client_sock, canAsciiMessage, strlen(canAsciiMessage) + 1) < 0) {
                 printf("Write to TCP failed\n");
             } else {
                 printf("Write to TCP OK\n");
@@ -352,7 +363,7 @@ void canProcessor::task() {
         }
     }
     
-    // prevent bad things happening if we drop off the bottom
+    // prevent bad things happening if we drop off the bottom  (which we shouldn't)
     printf("Deleting task %s.\n", __func__);
     vTaskDelete(NULL);
 }
