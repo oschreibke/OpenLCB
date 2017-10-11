@@ -350,9 +350,9 @@ void byte2hex(uint8_t byte, char* ptr) {
 /*
  * Encode a CAN message to the corresponding CANASCII format, and pass to the telnet client
 */ 
-/*
+
 void canProcessor(void *pvParameters) {
-    CAN_MESSAGE canMessage;
+    struct CAN_MESSAGE canMessage;
     char* p;
     char canAsciiMessage[CAN_ASCII_MESSAGE_LENGTH];
 
@@ -392,4 +392,4 @@ void canProcessor(void *pvParameters) {
     printf("Deleting task %s.\n", __func__);
     vTaskDelete(NULL);
 }
-*/
+

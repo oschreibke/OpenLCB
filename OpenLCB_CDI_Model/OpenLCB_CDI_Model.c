@@ -69,8 +69,6 @@
 #include "lwip/sockets.h"
 
 #include "CANCommon.h"
-#include "CanAscii2Can.h"
-#include "Can2CanAscii.h"
 #include "OpenLCBMessage.h"
 #include "OpenLCBCDI.h"
 #include "Util.h"
@@ -525,32 +523,15 @@ void processMessage(struct CAN_MESSAGE* cm) {
 bool SendMessage() {
     // Convert MsgOut to CANASCII format and send it to the WiFi client (JMRI)
 
-    uint32_t CANIdentifier = 0;
-    //  uint8_t CANDataLen = 0;
-    //  uint8_t CANData[8]; // = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07};
-    char canAsciiMessage[CAN_ASCII_MESSAGE_LENGTH];
     bool OK = true;
-    //char CANAscii[CANASCII_SIZE]; // array to store the ASCII-encoded message
-
-    CANIdentifier = getId(&msgOut) | 0x10000000;
-    //    getData(&msgOut, CANData, CANDataLen);
-    //    printf("CANIdentifier: "); Serial.println(CANIdentifier, HEX);
-    //    printf("CANDataLen: "); Serial.println(CANDataLen);
 
     // Only send if there's data
-    if (CANIdentifier != 0) {
-        //        Can2CanAscii(&CANIdentifier, &CANDataLen, CANData, CANAscii);
-        Can2CanAscii(&CANIdentifier, getPDataLength(&msgOut), getPData(&msgOut), canAsciiMessage);
-        printf("Sending: %s\n", canAsciiMessage);
-        // Transmit the CAN-Ascii message to the WiFiclient
-        //wifiClient.print(CANAscii);
-        
-        //printf("Writing CanASCII message %s to network\n", canAsciiMessage);
-            if	((OK = (write(client_sock, canAsciiMessage, strlen(canAsciiMessage) + 1) >= 0))) {
-                printf("Write to TCP OK\n");
-            } else {
-                printf("Write to TCP failed\n");
-            }
+    if (msgOut.id != 0) {
+		msgOut.id = msgOut.id | 0x10000000;
+        if(xQueueSendToBackFromISR(qh.xQueueCanToWiFi, &msgOut, NULL)!= pdPASS ) {
+            printf("Queue xQueueWiFiToCan full, discarding message\n");
+            OK = false;
+        }
         setId(&msgOut, 0);
     }
     vTaskDelay(0); // yield();
