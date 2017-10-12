@@ -35,7 +35,9 @@
 
 #include "canmessage.h"
 
+#ifndef byte
 #define byte uint8_t
+#endif
 
 // CAN ID format (from s-9.7.0.3)
 //
@@ -162,26 +164,36 @@ enum protocol {
       
 
     //OpenLCBMessage(void);
-    uint32_t getId(struct CAN_MESSAGE* cm);
-    uint16_t getMTI(struct CAN_MESSAGE* cm);
-    uint16_t getSenderAlias(struct CAN_MESSAGE* cm);
-    void setId(struct CAN_MESSAGE* cm, uint32_t newId);
-    uint8_t getDataLength(struct CAN_MESSAGE* cm);
-    void setDataLength(struct CAN_MESSAGE* cm, uint8_t newDataLength);
+//    uint32_t getId(struct CAN_MESSAGE* cm);
+//    uint16_t getMTI(struct CAN_MESSAGE* cm);
+//    uint16_t getSenderAlias(struct CAN_MESSAGE* cm);
+//    void setId(struct CAN_MESSAGE* cm, uint32_t newId);
+//    uint8_t getDataLength(struct CAN_MESSAGE* cm);
+//    void setDataLength(struct CAN_MESSAGE* cm, uint8_t newDataLength);
     void getData(struct CAN_MESSAGE* cm, byte* dataBuf, uint8_t* length);
-    uint8_t getDataByte(struct CAN_MESSAGE* cm, uint8_t index);
+//    uint8_t getDataByte(struct CAN_MESSAGE* cm, uint8_t index);
     void setData(struct CAN_MESSAGE* cm, byte* newDataBuf, uint8_t newDataLength);
-    uint32_t * getPId(struct CAN_MESSAGE* cm);
-    uint8_t * getPExt(struct CAN_MESSAGE* cm);
-	byte* getPData(struct CAN_MESSAGE* cm);
-	uint8_t * getPDataLength(struct CAN_MESSAGE* cm);
-	void initialise(struct CAN_MESSAGE* cm);
+//    uint32_t * getPId(struct CAN_MESSAGE* cm);
+//    enum CAN_message_type * getPExt(struct CAN_MESSAGE* cm);
+//	byte* getPData(struct CAN_MESSAGE* cm);
+//	uint8_t * getPDataLength(struct CAN_MESSAGE* cm);
+//	void initialise(struct CAN_MESSAGE* cm);
 
-    bool isControlMessage(struct CAN_MESSAGE* cm);
-    void setCANid(struct CAN_MESSAGE* cm, uint16_t MTI, uint16_t alias);
+    //bool isControlMessage(struct CAN_MESSAGE* cm);
+//    void setCANid(struct CAN_MESSAGE* cm, uint16_t MTI, uint16_t alias);
     void setNodeidToData(struct CAN_MESSAGE* cm, uint64_t nodeId);
-    uint64_t getNodeIdFromData(struct CAN_MESSAGE* cm);
+//    uint64_t getNodeIdFromData(struct CAN_MESSAGE* cm);
     uint64_t getEventIdFromData(struct CAN_MESSAGE* cm);
-    uint16_t getDestAliasFromData(struct CAN_MESSAGE* cm);	
+//    uint16_t getDestAliasFromData(struct CAN_MESSAGE* cm);	
+
+/*
+#define getId(cm) (cm.id)
+#define getMTI(cm) ((cm.id & 0x0FFFF000UL) >> 12)
+#define getSenderAlias(cm) (cm.id & 0x00000FFFUL)
+#define setId(cm, newId) cm.id = newId
+#define getDataLength(cm) (cm.len)
+#define setDataLength(cm, newDataLength) cm.len = newDataLength
+#define 
+*/
 
 #endif

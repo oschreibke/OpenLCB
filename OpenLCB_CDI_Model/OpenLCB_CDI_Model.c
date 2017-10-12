@@ -103,10 +103,10 @@ enum EVENTTYPE {I2COutput, I2CInput, pinOutput, pinInput};
 
 struct OpenLCBEvent {
     uint64_t       eventId;
-    char           eventName[37];
     enum EVENTTYPE eventType;
     uint8_t        address;
     uint8_t        eventValue;
+    char           eventName[42];
 };
 
 
@@ -174,8 +174,7 @@ const  char cdiXml[] = "<?xml version=\"1.0\"?>\n"
 									  "<eventid><name>I2C or pin command</name>"
 										  "<description>When this event arrives, command will be sent to the selected i2c device or pin.</description>"
 									  "</eventid>"
-									  "<string size=\"37\"><name>Description</name></string>"
-									  "<int size=\"1\"><name>Decoder type</name><default>1</default>"
+									  "<int size=\"4\"><name>Decoder type</name><default>1</default>"
 										  "<map>"
 											  "<relation><property>1</property><value>I2C output</value></relation>"
 											  "<relation><property>2</property><value>I2C input</value></relation>"
@@ -185,6 +184,7 @@ const  char cdiXml[] = "<?xml version=\"1.0\"?>\n"
 									 "</int>"
 									 "<int size=\"1\"><name>I2C Address (8-127) or pin number (D0-D10)</name><min>0</min><max>127</max></int>"
 									 "<int size=\"1\"><name>Command</name><min>0</min><max>255</max></int>"
+ 								     "<string size=\"42\"><name>Description</name></string>"
 								  "</group>"
 							  "</group>"
 						  "</segment>\n"
@@ -205,19 +205,19 @@ const  char cdiXml[] = "<?xml version=\"1.0\"?>\n"
 // Note CAN handling is fake. A physical CAN interface is not necessary.
 
 
-enum CAN_message_type  WiFiMessageType = Standard;
-uint32_t WiFiIdentifier = 0;
-uint8_t WiFiDataLen = 0;
-uint8_t WiFiData[8] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07};
+//enum CAN_message_type  WiFiMessageType = Standard;
+//uint32_t WiFiIdentifier = 0;
+//uint8_t WiFiDataLen = 0;
+//uint8_t WiFiData[8] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07};
 
 char msgString[128];                        // Array to store serial string
 
 // some status variables, probably left over from the code I hacked and not used
 bool wifiInitialised = false;
-enum NodeStatus {uninitialised, initialised};
+//enum NodeStatus {uninitialised, initialised};
 enum CIDSent {noneSent, CID1Sent, CID2Sent, CID3Sent, CID4Sent, RIDSent, AMDSent, INITSent};
 
-enum NodeStatus ns = uninitialised;
+//enum NodeStatus ns = uninitialised;
 enum CIDSent cidSent = noneSent;
 
 // More status variables, possibly not all used
@@ -227,7 +227,7 @@ bool waitForDatagramACK = false;
 uint32_t addressOffset = 0;
 
 // The incoming and outgoing can messages
-struct CAN_MESSAGE msgIn;
+//struct CAN_MESSAGE msgIn;
 struct CAN_MESSAGE msgOut;
 
 // The sender alias ( = JMRI)
@@ -244,7 +244,7 @@ struct EEPROM_Data eed;
 
 
 
-void setup() {
+void setUpModel() {
     //// start the connection for the Arduino serial monitor
     //uart_set_baud(0, 115200);
 //#ifdef SHOWMESSAGES
@@ -267,6 +267,15 @@ void setup() {
     //    hexDump("eventId", &eed.event[0].eventId, 8);
     //    print64BitHex(eed.event[0].eventId); Serial.println();
 
+    struct OpenLCBEvent ev;
+
+    printf("sizeof(OpenLCBEvent): %d, instance: %d \ncomponent size (no padding): %d\n", sizeof(struct OpenLCBEvent), sizeof(ev),
+        sizeof(ev.eventId) + 
+        sizeof(ev.eventName) +
+        sizeof(ev.eventType) +
+        sizeof(ev.address) +
+        sizeof(ev.eventValue));
+    
     // ... and initialise it all to 0x00
     memset(&eed, 0x00, sizeof(struct EEPROM_Data));
 
@@ -281,6 +290,48 @@ void setup() {
     // not needed. the CDI is static.
     //cdi.AssembleXML();
 
+}
+
+void setUpNode(){
+    printf("%s: entering\n", __func__);
+    
+   // Query the node status
+
+        // abbreviated setup
+        // (not sure if this is strictly necessary - JMRI will send Verified Node queries on opening the configuration panel)
+
+        // state machine for the initialisation process.
+            // send a RID (Reserve ID) message
+            msgOut.id = ((uint32_t)RID << 12 | ((uint32_t)alias & 0x0FFF));
+            msgOut.len = 0;
+            SendMessage();
+            //printf("RID: ");
+            //Serial.println(*getPId(&msgOut, ), HEX);
+            cidSent = RIDSent;
+
+            // transition to permitted
+            // Send a AMD (Alias Map Definition) message
+            msgOut.id = ((uint32_t)AMD << 12 | ((uint32_t)alias & 0x0FFF));
+            setNodeidToData(&msgOut, nodeId);
+            SendMessage();
+            cidSent = AMDSent;
+            //Serial.println("Preparing AMD");
+            //printf("CANid: "); Serial.println(getId(&msgOut, ), HEX);
+            //printf("datalength: "); Serial.println(msgOut.len));
+            //printf("data: ");
+            //for (int i = 0; i < 8; i++){
+            //printf(Nybble2Hex((getDataByte(&msgOut, i) >> 4) & 0x0F));
+            //printf(Nybble2Hex(getDataByte(&msgOut, i) & 0x0F));
+            //}
+            //Serial.println();
+
+            // send an initialisation complete message
+            msgOut.id = ((uint32_t)INIT << 12 | ((uint32_t)alias & 0x0FFF));
+            setNodeidToData(&msgOut, nodeId);
+            cidSent = INITSent;
+            SendMessage();
+        
+    printf("%s: leaving\n", __func__);
 }
 
 void processMessage(struct CAN_MESSAGE* cm) {
@@ -303,85 +354,39 @@ void processMessage(struct CAN_MESSAGE* cm) {
     //}
 
     // (un) initialise the output id. 0=>no valid message to send
-    setId(&msgOut, 0);
+    msgOut.id = 0;
 
-    // Query the node status
-    switch (ns) {
-    case uninitialised:
-        // abbreviated setup
-        // (not sure if this is strictly necessary - JMRI will send Verified Node queries on opening the configuration panel)
-
-        // state machine for the initialisation process.
-        switch(cidSent) {
-        case noneSent:
-            // send a RID (Reserve ID) message
-            setCANid(&msgOut, RID, alias);
-            setDataLength(&msgOut, 0);
-
-            //printf("RID: ");
-            //Serial.println(*getPId(&msgOut, ), HEX);
-            cidSent = RIDSent;
-            break;
-
-        case RIDSent:
-
-            // transition to permitted
-            // Send a AMD (Alias Map Definition) message
-            setCANid(&msgOut, AMD, alias);
-            setNodeidToData(&msgOut, nodeId);
-            cidSent = AMDSent;
-            //Serial.println("Preparing AMD");
-            //printf("CANid: "); Serial.println(getId(&msgOut, ), HEX);
-            //printf("datalength: "); Serial.println(getDataLength(&msgOut, ));
-            //printf("data: ");
-            //for (int i = 0; i < 8; i++){
-            //printf(Nybble2Hex((getDataByte(&msgOut, i) >> 4) & 0x0F));
-            //printf(Nybble2Hex(getDataByte(&msgOut, i) & 0x0F));
-            //}
-            //Serial.println();
-            break;
-
-        case AMDSent:
-            // send an initialisation complete message
-            setCANid(&msgOut, INIT, alias);
-            setNodeidToData(&msgOut, nodeId);
-            cidSent = INITSent;
-            ns = initialised;
-            break;
-
-        default:
-            break;
-        }
+ 
 
 
-    case initialised:
 
         // process any incoming messages
 
-        setId(&msgIn, 0);
+        //msgIn.id = 0;
+
 #ifdef SHOWMESSAGES
-        printf("Received Message. [%04x]", WiFiIdentifier);
-        if (WiFiDataLen > 0) {
-            for (uint8_t i = 0; i < WiFiDataLen; i++) {
-                if (WiFiData[i] < 0x10) {
+        printf("%s: Received Message. [%04x]", __func__, cm->id);
+        if (cm->len > 0) {
+            for (uint8_t i = 0; i < cm->len; i++) {
+                if (cm->dataBytes[i] < 0x10) {
                     printf("0");
                 }
-                printf("%01x", WiFiData[i]);
+                printf("%01x", cm->dataBytes[i]);
             }
         }
         printf("\n");
 #endif
-        //setId(&msgIn, WiFiIdentifier & !0x10000000);
-        setId(&msgIn, WiFiIdentifier);
-        setData(&msgIn, WiFiData, WiFiDataLen);
+
+        //setId(cm, WiFiIdentifier & !0x10000000);
+ //       msgIn.id = cm->id;
+ //       setData(cm, &cm->dataBytes[0], cm->len);
 
         // Respond to the message
-        if (ns == initialised) {
-            printf("Processing message %04x\n", getMTI(&msgIn));
-            senderAlias = getSenderAlias(&msgIn);  // get JMRI's alias
+            printf("%s: Processing message %04x\n", __func__, ((cm->id & 0x0FFFF000) >> 12));
+            senderAlias = (cm->id & 0x00000FFFUL);  // get JMRI's alias
 
             // decode the message type identifier (MTI)
-            switch (getMTI(&msgIn)) {
+            switch ((uint16_t)((cm->id & 0x0FFFF000) >> 12)) {
 
             // A Simple Node Ident Info Request
             case SNIIRQ:
@@ -406,7 +411,8 @@ void processMessage(struct CAN_MESSAGE* cm) {
                 //  CDIP - Configuration Description Information
 
                 uint32_t protflags = SPSP | SNIP | DGP | MCP | CDIP;
-                setCANid(&msgOut, PSR, alias);  // Respond with a Protocol Support Reply
+                // Respond with a Protocol Support Reply
+                msgOut.id = ((uint32_t)PSR << 12 | ((uint32_t)alias & 0x0FFF));
                 dataBytes[0] = (byte)(senderAlias >> 8);
                 dataBytes[1] = (byte)(senderAlias & 0xFF);
                 dataBytes[2] = (byte)(protflags >> 16);
@@ -421,9 +427,9 @@ void processMessage(struct CAN_MESSAGE* cm) {
             }
 
             // A Verify Node ID Number Global request
-            case VNIG:
+            case VNIG:  // 0x9490
                 // respond with our full node id
-                setCANid(&msgOut, VNN, alias);
+                msgOut.id = ((uint32_t)VNN << 12 | ((uint32_t)alias & 0x0FFF) );
                 setNodeidToData(&msgOut, nodeId);
                 SendMessage();
                 break;
@@ -434,19 +440,19 @@ void processMessage(struct CAN_MESSAGE* cm) {
             // profuction code will need to handle the alias part differently.
 
             case 0xA123:  // a single frame datagran addressed to me
-                ReceiveDatagram(&msgIn, &datagramBuffer[0], &datagramPtr);
-                ProcessDatagram(senderAlias, alias, &datagramBuffer[0], datagramPtr);
+                ReceiveDatagram(cm, &datagramBuffer[0], &datagramPtr);
+                ProcessDatagram(senderAlias, alias, cm, &datagramBuffer[0], datagramPtr);
                 break;
 
             case 0xB123:  // the first of a multiframe datagram addressed to me
             case 0xC123:  // one of the middle frames, addressed to me
-                ReceiveDatagram(&msgIn, &datagramBuffer[0], &datagramPtr);
+                ReceiveDatagram(cm, &datagramBuffer[0], &datagramPtr);
                 break;
 
             case 0xD123:  // the final multiframe datagram addressed to me
-                ReceiveDatagram(&msgIn, &datagramBuffer[0], &datagramPtr);
+                ReceiveDatagram(cm, &datagramBuffer[0], &datagramPtr);
                 // as this is the last frame, we can process the whole datagram of up to 72 characters
-                ProcessDatagram(senderAlias, alias, &datagramBuffer[0], datagramPtr);
+                ProcessDatagram(senderAlias, alias, cm, &datagramBuffer[0], datagramPtr);
                 break;
 
             case DROK:
@@ -468,12 +474,12 @@ void processMessage(struct CAN_MESSAGE* cm) {
                 break;
 
             default:
+                printf("%s: unrecognised message type: %04X\n", __func__, (uint16_t)((cm->id & 0x0FFFF000) >> 12));
                 break;
             }
-        }
+        
 
-        break;
-    }
+
 
     //// is there anything to send?
     //if (getId(&msgOut) != 0) {
@@ -525,14 +531,16 @@ bool SendMessage() {
 
     bool OK = true;
 
+	printf("%s: sending message, id = %08X\n", __func__, msgOut.id);
+
     // Only send if there's data
     if (msgOut.id != 0) {
 		msgOut.id = msgOut.id | 0x10000000;
-        if(xQueueSendToBackFromISR(qh.xQueueCanToWiFi, &msgOut, NULL)!= pdPASS ) {
+        if(xQueueSendToBack(qh.xQueueCanToWiFi, &msgOut, 500 / portTICK_PERIOD_MS) != pdPASS ) {
             printf("Queue xQueueWiFiToCan full, discarding message\n");
             OK = false;
         }
-        setId(&msgOut, 0);
+        msgOut.id = 0;
     }
     vTaskDelay(0); // yield();
     return OK;
@@ -543,7 +551,7 @@ bool SendDROK(uint16_t senderAlias, uint16_t destAlias, bool pending) {
     // Send a Datagram Received OK message with the Reply Pending bit set, if requested.
     byte dataBytes[8];
 
-    setCANid(&msgOut, DROK, destAlias);
+    msgOut.id = ((uint32_t)DROK << 12 | ((uint32_t)alias & 0x0FFF));
     dataBytes[0] = (byte)(senderAlias >> 8);
     dataBytes[1] = (byte)(senderAlias & 0xFF);
     dataBytes[2] = (!pending) ? 0x0 : 0x80;  // set reply pending if requested
@@ -562,7 +570,7 @@ bool sendSNIHeader(uint16_t senderAlias, uint16_t destAlias) {
     // to be followed by the actual string in subsequent frames
     byte dataBytes[3];
 
-    setCANid(&msgOut, SNIIR, senderAlias);
+    msgOut.id = ((uint32_t)SNIIR << 12 | ((uint32_t)alias & 0x0FFF));
     dataBytes[0] = (byte)(destAlias >> 8) | 0x10;  // first frame
     dataBytes[1] = (byte)(destAlias & 0xFF);
     dataBytes[2] = 0x04;   // version number: sending manufacturer name, node model name, node hardware version and node software version
@@ -581,7 +589,7 @@ bool sendSNIReply(uint16_t senderAlias, uint16_t destAlias, const char infoText[
 
     printf("infoText (%d) %s\n", strlen(infoText), infoText);
 
-    setCANid(&msgOut, SNIIR, senderAlias);
+    msgOut.id = ((uint32_t)SNIIR << 12 | ((uint32_t)alias & 0x0FFF));
     dataBytes[0] = (byte)(destAlias >> 8);
     dataBytes[1] = (byte)(destAlias & 0xFF);
 
@@ -598,11 +606,11 @@ bool sendSNIReply(uint16_t senderAlias, uint16_t destAlias, const char infoText[
             setData(&msgOut, &dataBytes[0], dataLen);
             vTaskDelay(50 * portTICK_PERIOD_MS);   // add delay otherwise messages are not sent in sequence (Not necessary here: this is a problem with the CAN library)
             SendMessage();
-            setCANid(&msgOut, SNIIR, senderAlias);
+            msgOut.id = ((uint32_t)SNIIR << 12 | ((uint32_t)alias & 0x0FFF));
             dataLen = 2;
         }
     }
-    setId(&msgOut, 0);
+    msgOut.id = 0;
     return fail;
 }
 
@@ -610,7 +618,7 @@ bool sendSNIUserHeader(uint16_t senderAlias, uint16_t destAlias) {
     // Send the SNI header for the user data elements
     byte dataBytes[3];
 
-    setCANid(&msgOut, SNIIR, senderAlias);
+    msgOut.id = ((uint32_t)SNIIR << 12 | ((uint32_t)alias & 0x0FFF));
     dataBytes[0] = (byte)(destAlias >> 8) | 0x30; // intermediate frame
     dataBytes[1] = (byte)(destAlias & 0xFF);
     dataBytes[2] = 0x02;   // version number: sending user-provided node name, user-provided node description
@@ -651,7 +659,7 @@ bool sendSNIUserReply(uint16_t senderAlias, uint16_t destAlias, const char userV
     //printf(F(") "));
     //Serial.println(infoText);
 
-    setCANid(&msgOut, SNIIR, senderAlias);
+    msgOut.id = ((uint32_t)SNIIR << 12 | ((uint32_t)alias & 0x0FFF));
     dataBytes[0] = (byte)(destAlias >> 8);
     dataBytes[1] = (byte)(destAlias & 0xFF);
 
@@ -671,11 +679,11 @@ bool sendSNIUserReply(uint16_t senderAlias, uint16_t destAlias, const char userV
             setData(&msgOut, &dataBytes[0], dataLen);
             vTaskDelay(50);   // add delay otherwise messages are not sent in sequence (Not necessary here: this is a problem with the CAN library)
             SendMessage();
-            setCANid(&msgOut, SNIIR, senderAlias);
+            msgOut.id = ((uint32_t)SNIIR << 12 | ((uint32_t)alias & 0x0FFF));
         }
         dataLen = 2;
     }
-    setId(&msgOut, 0);
+    msgOut.id = 0;
     return fail;
 }
 
@@ -684,26 +692,26 @@ void SendDatagram(const uint16_t destAlias, uint16_t senderAlias, struct CAN_MES
     // Note: depending on the segment production code will need to retrieve from the appropriate storage: PROGMEM or EEPROM
 
     // fiddle with the location of the Segment specifier - JMRI is not consistent. See  S-9.7.4.2 for details
-    uint8_t lenPos = (getDataByte(msg, 1) == 0x40)? 7:6;
+    uint8_t lenPos = (msg->dataBytes[1] == 0x40)? 7:6;
     // determine the offset within the segment of the data to read/write
-    uint32_t address = ((uint32_t) getDataByte(msg, 2) << 24) + ((uint32_t) getDataByte(msg, 3) << 16) + ((uint32_t) getDataByte(msg, 4) << 8) + ((uint32_t) getDataByte(msg, 5));
+    uint32_t address = ((uint32_t) msg->dataBytes[2] << 24) + ((uint32_t) msg->dataBytes[3] << 16) + ((uint32_t) msg->dataBytes[4] << 8) + ((uint32_t) msg->dataBytes[5]);
     // how much data was requested? Normally a read will request 64 (0x40) bytes, a write will send the length of the data element (e.g. 8 bytes for an event id).
-    uint8_t length = (uint8_t) getDataByte(msg, lenPos);
+    uint8_t length = (uint8_t) msg->dataBytes[lenPos];
 
     // copy the request bytes
     //setCANid(((&msgOutlength <= dataLength + 1 - 6)?0xB000:0xA000) + destAlias, senderAlias);
 
     // send a response datagram. The data content is the first 6/7 (depending on byte 1 of the request (S-9.7.4.2))
-    setCANid(&msgOut, 0xB000 + destAlias, senderAlias);
+    msgOut.id = ((uint32_t)(0xB000 + destAlias) << 12 | ((uint32_t)senderAlias & 0x0FFF));
     //    buf[0] = 0x20;
     //    buf[1] = 0x53; // address space FF
     //    buf[2] = (byte)(address >> 24);
     //    buf[3] = (byte)((address >> 16) & 0xFF);
     //    buf[4] = (byte)((address >> 8) & 0xFF);
     //    buf[5] = (byte)(address & 0xFF);
-    setData(&msgOut, getPData(msg), getDataLength(msg) - 1);  // retrieve as many data bytes as we were sent
+    setData(&msgOut, &msg->dataBytes[0], msg->len - 1);  // retrieve as many data bytes as we were sent
     // pointer arithmetic, add 0x10 to byte 1 of the data area
-    * (getPData(&msgOut) + 1) = getDataByte(msg, 1) + 0x10;
+    msgOut.dataBytes[1] = msg->dataBytes[1] | 0x10;
 
     // send the reply header
     SendMessage();
@@ -715,7 +723,8 @@ void SendDatagram(const uint16_t destAlias, uint16_t senderAlias, struct CAN_MES
 
     // send the data in 8-byte chunks, identify the last frame as the final frame in the datagram.
     for (int i = 0; i < length; i+=8) {
-        setCANid(&msgOut, (i < (length - 8)? 0xC000 : 0xD000) + destAlias, senderAlias);
+        msgOut.id = ((uint32_t)((i < (length - 8)? 0xC000 : 0xD000) + destAlias) << 12 | ((uint32_t)senderAlias & 0x0FFF));
+        
         setData(&msgOut, (byte*)(&data[address + i]), (length - i) >= 8 ? 8 : length - i );
 
         SendMessage();
@@ -729,22 +738,22 @@ void SendWriteReply(const uint16_t destAlias, uint16_t senderAlias, byte * buf, 
     // again, fiddle with the request format to determine the length of the data to send
     uint8_t dataPos = (*(buf+1) == 0x00)? 7:6;
     //hexDump("SendWriteReply", buf, dataPos);
-    setCANid(&msgOut, 0xA000 + destAlias, senderAlias);
+    msgOut.id = ((uint32_t)(0xA000 + destAlias) << 12 | ((uint32_t)senderAlias & 0x0FFF));
     setData(&msgOut, buf, dataPos);  // retrieve as many data bytes as we were sent
     //hexDump("SendWriteReply - set data buf", getPData(&msgOut, ), dataPos);
     //printf("*buf+1 "); Serial.println(*(buf+1));
 
     // pointer Arithmetic: add 0x10 to byte 1 of the data area.
-    * (getPData(&msgOut) + 1) = (*(buf+1)) + 0x10;
+    msgOut.dataBytes[1] = (*(buf+1)) + 0x10;
     //printf("getPData(&msgOut, ) + 1 "); Serial.println(* (getPData(&msgOut, ) + 1));
 
     // send an error response if the error code was set.
     // again pointer arithmetic to put things in the correct place. Could be improved to increase transparency.
     if (errorCode != 0) {
-        * (getPData(&msgOut) + 1) = (*buf+1) + 0x08;
-        * (getPData(&msgOut) + dataPos) = (byte)errorCode >> 8;
-        * (getPData(&msgOut) + dataPos + 1) = (byte)errorCode & 0xFF;
-        setDataLength(&msgOut, dataPos + 1);
+        msgOut.dataBytes[1] = (*buf+1) + 0x08;
+        msgOut.dataBytes[dataPos] = (byte)errorCode >> 8;
+        msgOut.dataBytes[dataPos + 1] = (byte)errorCode & 0xFF;
+        msgOut.len = dataPos + 1;
     }
 
     //hexDump("SendWriteReply - message", getPData(&msgOut, ), dataPos);
@@ -760,7 +769,7 @@ void ReceiveDatagram(struct CAN_MESSAGE* m, byte* buffer, uint8_t * ptr) {
     //    Serial.println(*ptr);
 
     // 0xAxxx and 0xBxxx indicate the first (only) frame in the datagram, clear the buffer and reset the pointer before filling.
-    if (getMTI(m) == 0xA123 || getMTI(m) == 0xB123) {
+    if (((m->id & 0x0FFFF000) >> 12) == 0xA123 || ((m->id & 0x0FFFF000) >> 12) == 0xB123) {
         memset(buffer, '\0', 72);
         *ptr = 0;
     }
@@ -770,7 +779,7 @@ void ReceiveDatagram(struct CAN_MESSAGE* m, byte* buffer, uint8_t * ptr) {
     *ptr += dataLength;
 }
 
-void ProcessDatagram(uint16_t senderAlias, uint16_t alias,  byte* datagram, uint8_t datagramLength) {
+void ProcessDatagram(uint16_t senderAlias, uint16_t alias, struct CAN_MESSAGE* m, byte* datagram, uint8_t datagramLength) {
     // process the datagram we just received
 
     uint32_t errorCode = 0x0000;  // no error (so far)
@@ -822,17 +831,17 @@ void ProcessDatagram(uint16_t senderAlias, uint16_t alias,  byte* datagram, uint
 
             case 0xFB:  // user descriptions
                 //printf("Sending user data, length ") Serial.println(sizeof(eed.header.userName) + sizeof(eed.header.userDescription));
-                SendDatagram(senderAlias, alias, &msgIn, eed.header.userName, sizeof(eed.header.userName) + sizeof(eed.header.userDescription));
+                SendDatagram(senderAlias, alias, m, eed.header.userName, sizeof(eed.header.userName) + sizeof(eed.header.userDescription));
                 break;
 
             case 0xFD:
                 // it's a request for space 0xFD - configuration Data
-                SendDatagram(senderAlias, alias, &msgIn, (const char *) &eed.event[0], sizeof(struct EEPROM_Data) - sizeof(eed.header));
+                SendDatagram(senderAlias, alias, m, (const char *) &eed.event[0], sizeof(struct EEPROM_Data) - sizeof(eed.header));
                 break;
 
             case 0xFF:
                 // its a cdi request
-                SendDatagram(senderAlias, alias, &msgIn, cdiXml, strlen(cdiXml) + 1);
+                SendDatagram(senderAlias, alias, m, cdiXml, strlen(cdiXml) + 1);
                 break;
             }
             break;

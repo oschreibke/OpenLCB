@@ -39,6 +39,7 @@
 #include "wifi_can.h"
 #include "tcpserver.h"
 #include "canmessage.h"
+#include "OpenLCB_CDI_Model.h"
 
 #define TELNET_PORT 23
 
@@ -151,11 +152,11 @@ void user_init(void) {
 	
     uart_set_baud(0, 115200);
 
-    printf("\r\n\r\nWiFi -> can bridge.\r\n");
+    printf("\r\n\r\nOpenLCB CDI Simulator.\r\n");
     printf("SDK version:%s\n", sdk_system_get_sdk_version());
 
     rboot_config conf = rboot_get_config();
-    printf("\r\nCurrently running on flash slot %d / %d.\r\n\r\n",
+    printf("\r\nOTA enabled\rCurrently running on flash slot %d / %d.\r\n\r\n",
            conf.current_rom, conf.count);
 
     printf("Image addresses in flash:\r\n");
@@ -175,6 +176,8 @@ void user_init(void) {
 
     sdk_wifi_set_opmode(STATION_MODE);
     sdk_wifi_station_set_config(&config);
+    
+    setUpModel();
 
     printf("Creating queues\n");
 

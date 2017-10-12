@@ -119,6 +119,8 @@ void tcpServer(void *pvParameters) {
     //tcplistener.task_create("TCP listener", configMINIMAL_STACK_SIZE * 2, 3);
     xTaskCreate(&tcpListener, "TCP listener", configMINIMAL_STACK_SIZE * 2, NULL, 3, NULL);
     xTaskCreate(&tcpProcessor, "TCP processor", configMINIMAL_STACK_SIZE * 2, NULL, 2, NULL);
+    xTaskCreate(&canProcessor, "CAN processor", configMINIMAL_STACK_SIZE * 2, NULL, 3, NULL);
+    
     //printf("Setting up the can interface.\n");
     //if(mcpcan.begin(CAN_CS, CAN_INT, MCP_ANY, CAN_125KBPS, MCP_8MHZ) == CAN_OK) {
         //printf("Can Init OK, starting Procesor tasks\n");
@@ -159,7 +161,7 @@ void tcpServer(void *pvParameters) {
  *  
 */ 
 void tcpListener(void *pvParameters) {
-    printf("ESP8266 TCP server task > listen ok\n");
+    printf("%s: ESP8266 TCP server task > listen ok\n", __func__);
 
     struct sockaddr_in remote_addr;
 
@@ -176,11 +178,13 @@ void tcpListener(void *pvParameters) {
         //printf("ESP8266 TCP server task > wait client\n");
         /*block here waiting remote connect request*/
         if ((client_sock = accept(listenfd, (struct sockaddr *)&remote_addr, (socklen_t *)&len)) < 0) {
-            printf("ESP8266 TCP server task > accept fail\n");
+            printf("%s: ESP8266 TCP server task > accept fail\n", __func__);
             continue;
         }
 
-        printf("ESP8266 TCP server task > Client from %s %d\n", inet_ntoa(remote_addr.sin_addr), htons(remote_addr.sin_port));
+        printf("%s: ESP8266 TCP server task > Client from %s %d\n", __func__, inet_ntoa(remote_addr.sin_addr), htons(remote_addr.sin_port));
+
+        setUpNode();
 
         while ((recbytes = read(client_sock, &recv_buf, TCP_MESSAGE_LENGTH)) > 0) {
             recv_buf[recbytes] = 0;
@@ -212,12 +216,12 @@ void tcpListener(void *pvParameters) {
                                         for (char* p = colonPos; p <= semicolonPos; p++) {
                                             *pCanMsg++ = *p;
                                         }
-                                        //printf("queueing message %s\n", canAsciiMessage);
+                                        printf("%s: queueing message %s\n", __func__, canAsciiMessage);
                                         if(xQueueSendToBack(qh.xQueueWiFiToCan, &canAsciiMessage, 500 / portTICK_PERIOD_MS)!= pdPASS ) {
-                                            printf("Queue xQueueWiFiToCan full, discarding message\n");
+                                            printf("%s: Queue xQueueWiFiToCan full, discarding message\n", __func__);
                                         }
                                     } else {
-                                        printf("Data error: more than 16 data nybbles, or not in pairs. %s\n", recv_buf);
+                                        printf("%s: Data error: more than 16 data nybbles, or not in pairs. %s\n", __func__, recv_buf);
                                     }
                                 }
                             }
@@ -231,7 +235,7 @@ void tcpListener(void *pvParameters) {
         }
 
         if (recbytes <= 0) {
-            printf("ESP8266 TCP server task > read data fail!\n");
+            printf("%s ESP8266 TCP server task > read data fail!\n", __func__);
             close(client_sock);
         }
     }
@@ -290,6 +294,9 @@ void tcpProcessor(void *pvParameters) {
                 }
             }
 
+
+            printf("%s. CAN ID = %x  ", __func__, cm.id);
+
             if (!fail) {
                 // add the data
                 cm.len = 0;
@@ -314,7 +321,7 @@ void tcpProcessor(void *pvParameters) {
                 // put the message to CAN
                 //printf("Writing message to the CAN interface. ID = %d, data length = %d, dataBytes ", cm.id, cm.len);
                 for(int i = 0; i < cm.len; i++){
-					printf("%0X ", cm.dataBytes[i]);
+					printf("%02X ", cm.dataBytes[i]);
 					}
                 printf("\n");	
                 processMessage(&cm);				
@@ -360,8 +367,8 @@ void canProcessor(void *pvParameters) {
 		//printf("Check queue CanToWiFi\n");
 		//printf("%u messages waiting\n", uxQueueMessagesWaiting(qh.xQueueCanToWiFi));
         if (xQueueReceive(qh.xQueueCanToWiFi, &canMessage, portMAX_DELAY) == pdPASS) {
-            printf("Dequeued CAN message.\n");
-            printf("id = %d, length = %d\n", canMessage.id, canMessage.len);
+            printf("%s: Dequeued CAN message.\n", __func__);
+            printf("%s: id = %08X, length = %d\n", __func__, canMessage.id, canMessage.len);
             memset(&canAsciiMessage, '\0', CAN_ASCII_MESSAGE_LENGTH);
             strcpy(canAsciiMessage, ":X");
             p = &canAsciiMessage[2];
@@ -379,11 +386,11 @@ void canProcessor(void *pvParameters) {
             *p++ = ';';
             *p = '\n';
 
-            //printf("Writing CanASCII message %s to network\n", canAsciiMessage);
+            printf("%s: Writing CanASCII message to network %s\n", __func__, canAsciiMessage);
             if	(write(client_sock, canAsciiMessage, strlen(canAsciiMessage) + 1) < 0) {
-                printf("Write to TCP failed\n");
+                printf("%s: Write to TCP failed\n", __func__);
             } else {
-                printf("Write to TCP OK\n");
+                printf("%s: Write to TCP OK\n", __func__);
             }
         }
     }

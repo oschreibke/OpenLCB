@@ -5,7 +5,7 @@
 
 typedef struct CAN_MESSAGE{
     uint32_t id; 
-    uint8_t  ext;
+    enum CAN_message_type ext;
     uint8_t  len; 
     uint8_t  dataBytes[8];
 } can_message;
