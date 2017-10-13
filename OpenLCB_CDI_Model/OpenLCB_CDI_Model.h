@@ -24,5 +24,8 @@ uint64_t ReverseEndianness(uint64_t *val);
 void processMessage(struct CAN_MESSAGE* cm);
 void setUpModel(void);
 void setUpNode(void);
+void setNodeidToData(struct CAN_MESSAGE* cm, uint64_t nodeId);
+uint64_t getEventIdFromData(struct CAN_MESSAGE* cm);
+void ShowCdiXmlLength();
 
 #endif

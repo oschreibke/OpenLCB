@@ -67,11 +67,7 @@ Pitfalls:
 Files in this folder:
     Description.h This file
     ESP8266_OpenLCB_CDI_Model.ino.  The main sketch; does the processing.
-    OpenLCBCDI.h .cpp               CDI definitions in .h, some related utility functions in .cpp
-    CanAscii2Can.h .cpp             Handles translation from CANASCII format to a CAN message.
-    Can2CanAscii.h .cpp             Handles translation from a CAN message to CANASCII format.
     CANCommon.h                     Defines items common to the two CAN modules. 
-    OpenLCBMessage.h .cpp           Defines the CAN message and methods to manipulate it.
     Util.h .cpp                     Defines some utility functions.
                 
 */

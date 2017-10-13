@@ -69,8 +69,9 @@
 #include "lwip/sockets.h"
 
 #include "CANCommon.h"
-#include "OpenLCBMessage.h"
-#include "OpenLCBCDI.h"
+#include "canmessage.h"
+//#include "OpenLCBMessage.h"
+//#include "OpenLCBCDI.h"
 #include "Util.h"
 #include "tcpserver.h"
 #include "OpenLCB_CDI_Model.h"
@@ -335,7 +336,7 @@ void setUpNode(){
 }
 
 void processMessage(struct CAN_MESSAGE* cm) {
-    byte dataBytes[8];
+    //byte dataBytes[8];
 
     ////	char buf[50];
 
@@ -413,15 +414,16 @@ void processMessage(struct CAN_MESSAGE* cm) {
                 uint32_t protflags = SPSP | SNIP | DGP | MCP | CDIP;
                 // Respond with a Protocol Support Reply
                 msgOut.id = ((uint32_t)PSR << 12 | ((uint32_t)alias & 0x0FFF));
-                dataBytes[0] = (byte)(senderAlias >> 8);
-                dataBytes[1] = (byte)(senderAlias & 0xFF);
-                dataBytes[2] = (byte)(protflags >> 16);
-                dataBytes[3] = (byte)(protflags >> 8) & 0xFF;
-                dataBytes[4] = (byte)(protflags & 0xFF);
-                dataBytes[5] = '\0';
-                dataBytes[6] = '\0';
-                dataBytes[7] = '\0';
-                setData(&msgOut, &dataBytes[0], 8);
+                msgOut.dataBytes[0] = (byte)(senderAlias >> 8);
+                msgOut.dataBytes[1] = (byte)(senderAlias & 0xFF);
+                msgOut.dataBytes[2] = (byte)(protflags >> 16);
+                msgOut.dataBytes[3] = (byte)(protflags >> 8) & 0xFF;
+                msgOut.dataBytes[4] = (byte)(protflags & 0xFF);
+                msgOut.dataBytes[5] = '\0';
+                msgOut.dataBytes[6] = '\0';
+                msgOut.dataBytes[7] = '\0';
+                msgOut.len = 8;
+                //setData(&msgOut, &dataBytes[0], 8);
                 SendMessage();
                 break;
             }
@@ -549,18 +551,19 @@ bool SendMessage() {
 
 bool SendDROK(uint16_t senderAlias, uint16_t destAlias, bool pending) {
     // Send a Datagram Received OK message with the Reply Pending bit set, if requested.
-    byte dataBytes[8];
+    //byte dataBytes[8];
 
     msgOut.id = ((uint32_t)DROK << 12 | ((uint32_t)alias & 0x0FFF));
-    dataBytes[0] = (byte)(senderAlias >> 8);
-    dataBytes[1] = (byte)(senderAlias & 0xFF);
-    dataBytes[2] = (!pending) ? 0x0 : 0x80;  // set reply pending if requested
-    dataBytes[3] = '\0';
-    dataBytes[4] = '\0';
-    dataBytes[5] = '\0';
-    dataBytes[6] = '\0';
-    dataBytes[7] = '\0';
-    setData(&msgOut, &dataBytes[0], 8);
+    msgOut.dataBytes[0] = (byte)(senderAlias >> 8);
+    msgOut.dataBytes[1] = (byte)(senderAlias & 0xFF);
+    msgOut.dataBytes[2] = (!pending) ? 0x0 : 0x80;  // set reply pending if requested
+    msgOut.dataBytes[3] = '\0';
+    msgOut.dataBytes[4] = '\0';
+    msgOut.dataBytes[5] = '\0';
+    msgOut.dataBytes[6] = '\0';
+    msgOut.dataBytes[7] = '\0';
+    msgOut.len = 8;
+    //setData(&msgOut, &dataBytes[0], 8);
     return SendMessage();
 }
 
@@ -568,13 +571,14 @@ bool sendSNIHeader(uint16_t senderAlias, uint16_t destAlias) {
     // Send the SNI header for the fixed data elements.
     // for simplicity, this is not a full frame, only three bytes are sent
     // to be followed by the actual string in subsequent frames
-    byte dataBytes[3];
+    //byte dataBytes[3];
 
     msgOut.id = ((uint32_t)SNIIR << 12 | ((uint32_t)alias & 0x0FFF));
-    dataBytes[0] = (byte)(destAlias >> 8) | 0x10;  // first frame
-    dataBytes[1] = (byte)(destAlias & 0xFF);
-    dataBytes[2] = 0x04;   // version number: sending manufacturer name, node model name, node hardware version and node software version
-    setData(&msgOut, &dataBytes[0], 3);
+    msgOut.dataBytes[0] = (byte)(destAlias >> 8) | 0x10;  // first frame
+    msgOut.dataBytes[1] = (byte)(destAlias & 0xFF);
+    msgOut.dataBytes[2] = 0x04;   // version number: sending manufacturer name, node model name, node hardware version and node software version
+    msgOut.len = 3;
+    // setData(&msgOut, &dataBytes[0], 3);
     SendMessage();
     return true;
 }
@@ -582,7 +586,7 @@ bool sendSNIHeader(uint16_t senderAlias, uint16_t destAlias) {
 bool sendSNIReply(uint16_t senderAlias, uint16_t destAlias, const char infoText[]) {
     // Send the SNI fixed data elements, one per call. Note: they will usually be stored in PROGGMEM
     // used to transmit manufacturer name, node model name, node hardware version and node software version
-    byte dataBytes[8];
+    //byte dataBytes[8];
     uint8_t pos = 0;
     uint8_t dataLen = 2;
     bool fail = false;
@@ -590,21 +594,22 @@ bool sendSNIReply(uint16_t senderAlias, uint16_t destAlias, const char infoText[
     printf("infoText (%d) %s\n", strlen(infoText), infoText);
 
     msgOut.id = ((uint32_t)SNIIR << 12 | ((uint32_t)alias & 0x0FFF));
-    dataBytes[0] = (byte)(destAlias >> 8);
-    dataBytes[1] = (byte)(destAlias & 0xFF);
+    msgOut.dataBytes[0] = (byte)(destAlias >> 8);
+    msgOut.dataBytes[1] = (byte)(destAlias & 0xFF);
 
     // break the text into 8-byte chunks due to the length limit of a CAN frame
     while(pos < strlen(infoText) +1) {
 
         //printf("Character at "); printf(pos); printf(": "); printf(infoText[pos]); printf(" dataBytes["); printf(dataLen);	printf("]: ");
-        dataBytes[dataLen++] = infoText[pos++];
+        msgOut.dataBytes[dataLen++] = infoText[pos++];
         //Serial.println((char)dataBytes[dataLen - 1]);
 
-        dataBytes[0] |= 0x30;  // intermediate frame
+        msgOut.dataBytes[0] |= 0x30;  // intermediate frame
 
         if (dataLen > 7 || pos > strlen(infoText)) {
-            setData(&msgOut, &dataBytes[0], dataLen);
-            vTaskDelay(50 * portTICK_PERIOD_MS);   // add delay otherwise messages are not sent in sequence (Not necessary here: this is a problem with the CAN library)
+			msgOut.len = dataLen;
+            //setData(&msgOut, &dataBytes[0], dataLen);
+            //vTaskDelay(50 * portTICK_PERIOD_MS);   // add delay otherwise messages are not sent in sequence (Not necessary here: this is a problem with the CAN library)
             SendMessage();
             msgOut.id = ((uint32_t)SNIIR << 12 | ((uint32_t)alias & 0x0FFF));
             dataLen = 2;
@@ -616,13 +621,14 @@ bool sendSNIReply(uint16_t senderAlias, uint16_t destAlias, const char infoText[
 
 bool sendSNIUserHeader(uint16_t senderAlias, uint16_t destAlias) {
     // Send the SNI header for the user data elements
-    byte dataBytes[3];
+    //byte dataBytes[3];
 
     msgOut.id = ((uint32_t)SNIIR << 12 | ((uint32_t)alias & 0x0FFF));
-    dataBytes[0] = (byte)(destAlias >> 8) | 0x30; // intermediate frame
-    dataBytes[1] = (byte)(destAlias & 0xFF);
-    dataBytes[2] = 0x02;   // version number: sending user-provided node name, user-provided node description
-    setData(&msgOut, &dataBytes[0], 3);
+    msgOut.dataBytes[0] = (byte)(destAlias >> 8) | 0x30; // intermediate frame
+    msgOut.dataBytes[1] = (byte)(destAlias & 0xFF);
+    msgOut.dataBytes[2] = 0x02;   // version number: sending user-provided node name, user-provided node description
+    msgOut.len = 3;
+    //setData(&msgOut, &dataBytes[0], 3);
     SendMessage();
     return true;
 }
@@ -630,7 +636,7 @@ bool sendSNIUserHeader(uint16_t senderAlias, uint16_t destAlias) {
 bool sendSNIUserReply(uint16_t senderAlias, uint16_t destAlias, const char userValue) {
     // Send the SNI fixed data elements, one per call. Note: they will usually be stored in EEPROM.
     // used to transmit the User Name and User Description.
-    byte dataBytes[8];
+    //byte dataBytes[8];
     char infoText[64];
     uint8_t pos = 0;
     uint8_t dataLen = 2;
@@ -660,24 +666,25 @@ bool sendSNIUserReply(uint16_t senderAlias, uint16_t destAlias, const char userV
     //Serial.println(infoText);
 
     msgOut.id = ((uint32_t)SNIIR << 12 | ((uint32_t)alias & 0x0FFF));
-    dataBytes[0] = (byte)(destAlias >> 8);
-    dataBytes[1] = (byte)(destAlias & 0xFF);
+    msgOut.dataBytes[0] = (byte)(destAlias >> 8);
+    msgOut.dataBytes[1] = (byte)(destAlias & 0xFF);
 
     // break the text into 8-byte chunks due to the length limit of a CAN frame
     while(pos < strlen(infoText) +1) {
 
         //printf("Character at "); printf(pos); printf(": "); printf(infoText[pos]); printf(" dataBytes["); printf(dataLen);	printf("]: ");
-        dataBytes[dataLen++] = infoText[pos++];
+        msgOut.dataBytes[dataLen++] = infoText[pos++];
         //Serial.println((char)dataBytes[dataLen - 1]);
 
         if (!(userValue == 'D' && pos > strlen(infoText))) {
-            dataBytes[0] |= 0x30;  // intermediate frame
+            msgOut.dataBytes[0] |= 0x30;  // intermediate frame
         } else {
-            dataBytes[0] &= ~0x10;  // last frame
+            msgOut.dataBytes[0] &= ~0x10;  // last frame
         }
         if (dataLen > 7 || pos > strlen(infoText)) {
-            setData(&msgOut, &dataBytes[0], dataLen);
-            vTaskDelay(50);   // add delay otherwise messages are not sent in sequence (Not necessary here: this is a problem with the CAN library)
+			msgOut.len = dataLen;
+            //setData(&msgOut, &dataBytes[0], dataLen);
+            //vTaskDelay(50);   // add delay otherwise messages are not sent in sequence (Not necessary here: this is a problem with the CAN library)
             SendMessage();
             msgOut.id = ((uint32_t)SNIIR << 12 | ((uint32_t)alias & 0x0FFF));
         }
@@ -709,7 +716,9 @@ void SendDatagram(const uint16_t destAlias, uint16_t senderAlias, struct CAN_MES
     //    buf[3] = (byte)((address >> 16) & 0xFF);
     //    buf[4] = (byte)((address >> 8) & 0xFF);
     //    buf[5] = (byte)(address & 0xFF);
-    setData(&msgOut, &msg->dataBytes[0], msg->len - 1);  // retrieve as many data bytes as we were sent
+    //setData(&msgOut, &msg->dataBytes[0], msg->len - 1);  // retrieve as many data bytes as we were sent
+    memcpy(&msgOut.dataBytes[0], &msg->dataBytes[0], msg->len - 1);
+    msgOut.len = msg->len - 1;
     // pointer arithmetic, add 0x10 to byte 1 of the data area
     msgOut.dataBytes[1] = msg->dataBytes[1] | 0x10;
 
@@ -725,7 +734,9 @@ void SendDatagram(const uint16_t destAlias, uint16_t senderAlias, struct CAN_MES
     for (int i = 0; i < length; i+=8) {
         msgOut.id = ((uint32_t)((i < (length - 8)? 0xC000 : 0xD000) + destAlias) << 12 | ((uint32_t)senderAlias & 0x0FFF));
         
-        setData(&msgOut, (byte*)(&data[address + i]), (length - i) >= 8 ? 8 : length - i );
+        //setData(&msgOut, (byte*)(&data[address + i]), (length - i) >= 8 ? 8 : length - i );
+        memcpy(&msgOut.dataBytes[0], (byte*)(&data[address + i]), (length - i) >= 8 ? 8 : length - i );
+        msgOut.len = (length - i) >= 8 ? 8 : length - i;
 
         SendMessage();
     }
@@ -739,7 +750,9 @@ void SendWriteReply(const uint16_t destAlias, uint16_t senderAlias, byte * buf, 
     uint8_t dataPos = (*(buf+1) == 0x00)? 7:6;
     //hexDump("SendWriteReply", buf, dataPos);
     msgOut.id = ((uint32_t)(0xA000 + destAlias) << 12 | ((uint32_t)senderAlias & 0x0FFF));
-    setData(&msgOut, buf, dataPos);  // retrieve as many data bytes as we were sent
+    //setData(&msgOut, buf, dataPos);  // retrieve as many data bytes as we were sent
+    memcpy(&msgOut.dataBytes[0], buf, dataPos); 
+    msgOut.len = dataPos;
     //hexDump("SendWriteReply - set data buf", getPData(&msgOut, ), dataPos);
     //printf("*buf+1 "); Serial.println(*(buf+1));
 
@@ -763,7 +776,7 @@ void SendWriteReply(const uint16_t destAlias, uint16_t senderAlias, byte * buf, 
 
 void ReceiveDatagram(struct CAN_MESSAGE* m, byte* buffer, uint8_t * ptr) {
     // receive a datagram and build the datagram buffer
-    uint8_t dataLength = 0;
+//    uint8_t dataLength = 0;
 
     //    printf("ptr: ");
     //    Serial.println(*ptr);
@@ -775,8 +788,11 @@ void ReceiveDatagram(struct CAN_MESSAGE* m, byte* buffer, uint8_t * ptr) {
     }
 
     // fill the received data into the buffer at the appropriate offset, then adjust the pointer
-    getData(m, buffer + *ptr, &dataLength);
-    *ptr += dataLength;
+//    getData(m, buffer + *ptr, &dataLength);
+//    *ptr += dataLength;
+
+    memcpy(buffer + *ptr, &m->dataBytes[0], m->len);
+    *ptr += m->len;
 }
 
 void ProcessDatagram(uint16_t senderAlias, uint16_t alias, struct CAN_MESSAGE* m, byte* datagram, uint8_t datagramLength) {
@@ -1015,4 +1031,29 @@ uint64_t ReverseEndianness(uint64_t *val) {
         rev += (uint64_t)(*(((byte*)val) + i)) << ((7 - i) * 8);
     }
     return rev;
+}
+
+void setNodeidToData(struct CAN_MESSAGE* cm, uint64_t nodeId) {
+    cm->len = 6;
+
+    for (uint8_t i = 2; i < 8; i++) {
+        //Serial.print((8 * (7 - i))); Serial.print(" ");
+        cm->dataBytes[i - 2] = (uint8_t) (nodeId >> (8 * (7 - i) & 0xFFUL));
+        //util::print8BitHex((uint8_t) (nodeId >> (8 * (7 - i)) & 0xFFUL)); Serial.println();
+    }
+}
+
+uint64_t getEventIdFromData(struct CAN_MESSAGE* cm) {
+    if (cm->len == 8) {
+        uint64_t eid = 0;
+        for (uint8_t i = 0; i < 8; i++)
+            eid = (eid << 8) + cm->dataBytes[i];
+        return eid;
+	} else
+        return 0;
+}
+
+void ShowCdiXmlLength() {
+	// Printitem(strlen(cdiXml));
+	printf("strlen(cdiXml): %d \n", strlen(cdiXml));
 }
