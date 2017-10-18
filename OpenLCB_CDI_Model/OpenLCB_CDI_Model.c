@@ -70,52 +70,21 @@
 
 #include "CANCommon.h"
 #include "canmessage.h"
-//#include "OpenLCBMessage.h"
-//#include "OpenLCBCDI.h"
 #include "Util.h"
 #include "tcpserver.h"
 #include "OpenLCB_CDI_Model.h"
+#include "cdihandler.h"
+#include "esp_spiffs.h"
+
 // documentation
 #include "Description.h"
 
 extern int32_t client_sock;
 extern struct queueHandles qh;
 
-// struct defining the user area of the EEPROM storage ( = Segment 253),
-// except for the serial which is the 16-bit node identifier to be appended to the
-// assigned OpenLCB number range. In my case 05 01 01 01 31.
-struct OpenLCBEEPROMHeader {
-    uint16_t  serial;
-    char      userName[63];
-    char      userDescription[64];
-};
 
-// my chosen event handlers (EVENTTYPE is a misnomer)
-enum EVENTTYPE {I2COutput, I2CInput, pinOutput, pinInput};
-
-
-// Struct to hold the configuration for an event.
-// Beware C++ padding which will silently add bytes. The padding causes the whole data structure to be larger than 1024 bytes
-// which is all the Arduino Nano has.
-
-// The eventtypes allow configuration of an Arduino pin (D1 - D10). This is an arbitrary choice of the free pins on my Nano.
-// Alternatively allows configuration of an I2C device (= ATTiny85).
-// For example: setting a slowmo point (switch, turnout, weiche, whatever) to a set angle.
-
-struct OpenLCBEvent {
-    uint64_t       eventId;
-    enum EVENTTYPE eventType;
-    uint8_t        address;
-    uint8_t        eventValue;
-    char           eventName[42];
-};
-
-
-// build the data in RAM
-struct EEPROM_Data {
-    struct OpenLCBEEPROMHeader header;
-    struct OpenLCBEvent event[20];
-};
+//// my chosen event handlers (EVENTTYPE is a misnomer)
+//enum EVENTTYPE {I2COutput, I2CInput, pinOutput, pinInput};
 
 // The node id. For simplicity I'm using alias 123 without any negotiation.
 const uint64_t nodeId = 0x0501010131FFULL;
@@ -141,7 +110,7 @@ const char SoftwareVersion[] = "0.1";
 // Segment 0xFD contains a repeating group of 20 entries, which is about all I can fit in the 1K EEPROM - See the notes about padding.
 //              Each event entry contains five elements:
 //                    - the event id associated with the entry. I don't think it has to be unique, but didn't try it.
-//                      Repeating an event identifier would for example enable raising and lowering a barrier and also setting the signal protecting it. 
+//                      Repeating an event identifier would for example enable raising and lowering a barrier and also setting the signal protecting it.
 //                    - A user description for the event.
 //                    - The handler type: I've defined both a physical Arduino pin and an I2C device.
 //                    - The pin number or I2C address
@@ -149,48 +118,46 @@ const char SoftwareVersion[] = "0.1";
 //                      In case if an input pin or device, receipt of the value would cause the corresponding event id to be generated
 
 const  char cdiXml[] = "<?xml version=\"1.0\"?>\n"
-                      "<cdi xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:noNamespaceSchemaLocation=\"http://openlcb.org/schema/cdi/1/1/cdi.xsd\">\n"
-						  "<identification>"
-							  "<manufacturer>O Schreibke</manufacturer>"
-							  "<model>Test Node</model>"
-							  "<hardwareVersion>0.1</hardwareVersion>"
-							  "<softwareVersion>0.1</softwareVersion>"
-						  "</identification>\n"
-						  "<acdi/>\n"
-						  //space 251 (0xFB) = User Info Description
-						  "<segment space=\"251\">"
-						      "<name>User Identification</name>"
-							  "<description>Lets the user add his own description</description>"
-							  "<string size=\"63\"><name>Node Name</name></string>" 
-							  "<string size=\"64\"><name>Node Description</name></string>"
-						  "</segment>\n" 
-						  // space 253 (0xFD) = configuration  
-						  "<segment space=\"253\">"
-							  "<group replication=\"20\">"
-								  "<name>Events</name>"
-								  "<description>Each tab is one entry in the event table.</description>"
-								  "<repname>Event</repname>"
-								  "<group>"
-								      "<name>Event</name>"
-									  "<eventid><name>I2C or pin command</name>"
-										  "<description>When this event arrives, command will be sent to the selected i2c device or pin.</description>"
-									  "</eventid>"
-									  "<int size=\"4\"><name>Decoder type</name><default>1</default>"
-										  "<map>"
-											  "<relation><property>1</property><value>I2C output</value></relation>"
-											  "<relation><property>2</property><value>I2C input</value></relation>"
-											  "<relation><property>3</property><value>Pin output</value></relation>"
-											  "<relation><property>4</property><value>Pin input</value></relation>"                      
-										  "</map>"
-									 "</int>"
-									 "<int size=\"1\"><name>I2C Address (8-127) or pin number (D0-D10)</name><min>0</min><max>127</max></int>"
-									 "<int size=\"1\"><name>Command</name><min>0</min><max>255</max></int>"
- 								     "<string size=\"42\"><name>Description</name></string>"
-								  "</group>"
-							  "</group>"
-						  "</segment>\n"
-                      "</cdi>\n\0";
-                      
+                       "<cdi xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:noNamespaceSchemaLocation=\"http://openlcb.org/schema/cdi/1/1/cdi.xsd\">\n"
+                       "<identification>"
+                       "<manufacturer>O Schreibke</manufacturer>"
+                       "<model>Test Node</model>"
+                       "<hardwareVersion>0.1</hardwareVersion>"
+                       "<softwareVersion>0.1</softwareVersion>"
+                       "</identification>\n"
+                       "<acdi/>\n"
+                       //space 251 (0xFB) = User Info Description
+                       "<segment space=\"251\">"
+                       "<name>User Identification</name>"
+                       "<description>Lets the user add his own description</description>"
+                       "<string size=\"63\"><name>Node Name</name></string>"
+                       "<string size=\"64\"><name>Node Description</name></string>"
+                       "</segment>\n"
+                       // space 253 (0xFD) = configuration
+                       "<segment space=\"253\">"
+                       "<group replication=\"20\">"
+                       "<name>Events</name>"
+                       "<description>Each tab is one entry in the event table.</description>"
+                       "<repname>Event</repname>"
+                       "<group>"
+                       "<name>Event</name>"
+                       "<eventid><name>I2C or pin command</name>"
+                       "<description>When this event arrives, command will be sent to the selected i2c device or pin.</description>"
+                       "</eventid>"
+                       "<string size=\"45\"><name>Description</name></string>"
+                       "<int size=\"1\"><name>Direction</name><default>1</default>"
+                       "<map>"
+                       "<relation><property>0</property><value>Input</value></relation>"
+                       "<relation><property>1</property><value>Output</value></relation>"
+                       "</map>"
+                       "</int>"
+                       "<int size=\"1\"><name>I2C Address (8-127)</name><min>8</min><max>127</max></int>"
+                       "<int size=\"1\"><name>Command</name><min>0</min><max>255</max></int>"
+                       "</group>"
+                       "</group>"
+                       "</segment>\n"
+                       "</cdi>\n\0";
+
 // define SHOWMESSAGES to write to the Serial object. The output can be viewed using the Arduino Serial Monitor;
 #define SHOWMESSAGES
 
@@ -246,298 +213,224 @@ struct EEPROM_Data eed;
 
 
 void setUpModel() {
-    //// start the connection for the Arduino serial monitor
-    //uart_set_baud(0, 115200);
-//#ifdef SHOWMESSAGES
-    //printf("\nStarting...\nESP8266 Connecting to %s\n", ssid);
-//#endif
 
-    //// initialise the ESP8266
-    //wifiInitialised = initialiseESP8266(&wifiServer);
+    // initialise SPIFFS
 
-    //if (wifiInitialised) {
-        //printf("Connection OK\n");
-    //} else {
-        //printf("Connection failed\n");
-    //}
-
-    //// Allocate the cdi data area (surprised this stays in scope)
-    //OpenLCBCDI cdi;
-
-    //    eed.event[0].eventId = 0x0501010101310000ULL;
-    //    hexDump("eventId", &eed.event[0].eventId, 8);
-    //    print64BitHex(eed.event[0].eventId); Serial.println();
+#if SPIFFS_SINGLETON == 1
+    esp_spiffs_init();
+#else
+    // for run-time configuration when SPIFFS_SINGLETON = 0
+    esp_spiffs_init(SPIFFS_BASE_ADDR, SPIFFS_SIZE);
+#endif
 
     struct OpenLCBEvent ev;
 
     printf("sizeof(OpenLCBEvent): %d, instance: %d \ncomponent size (no padding): %d\n", sizeof(struct OpenLCBEvent), sizeof(ev),
-        sizeof(ev.eventId) + 
-        sizeof(ev.eventName) +
-        sizeof(ev.eventType) +
-        sizeof(ev.address) +
-        sizeof(ev.eventValue));
-    
+           sizeof(ev.eventId) +
+           sizeof(ev.eventName) +
+           sizeof(ev.inputOutput) +
+           sizeof(ev.address) +
+           sizeof(ev.eventValue));
+
     // ... and initialise it all to 0x00
     memset(&eed, 0x00, sizeof(struct EEPROM_Data));
 
     // set up the serial and user area
     eed.header.serial = 0xFFFF;
-    strcpy((char *)&eed.header.userName, "my first Node");
-    strcpy((char *)&eed.header.userDescription, "first node for cdi");
+    strcpy((char *)&eed.header.userName, "Uninitialised Node");
+    strcpy((char *)&eed.header.userDescription, "Configure me");
 
     // small sanity check
     ShowCdiXmlLength();
 
-    // not needed. the CDI is static.
-    //cdi.AssembleXML();
+    readConfig(&eed);
 
 }
 
-void setUpNode(){
+void setUpNode() {
     printf("%s: entering\n", __func__);
-    
-   // Query the node status
 
-        // abbreviated setup
-        // (not sure if this is strictly necessary - JMRI will send Verified Node queries on opening the configuration panel)
+    // Query the node status
 
-        // state machine for the initialisation process.
-            // send a RID (Reserve ID) message
-            msgOut.id = ((uint32_t)RID << 12 | ((uint32_t)alias & 0x0FFF));
-            msgOut.len = 0;
-            SendMessage();
-            //printf("RID: ");
-            //Serial.println(*getPId(&msgOut, ), HEX);
-            cidSent = RIDSent;
+    // abbreviated setup
+    // (not sure if this is strictly necessary - JMRI will send Verified Node queries on opening the configuration panel)
 
-            // transition to permitted
-            // Send a AMD (Alias Map Definition) message
-            msgOut.id = ((uint32_t)AMD << 12 | ((uint32_t)alias & 0x0FFF));
-            setNodeidToData(&msgOut, nodeId);
-            SendMessage();
-            cidSent = AMDSent;
-            //Serial.println("Preparing AMD");
-            //printf("CANid: "); Serial.println(getId(&msgOut, ), HEX);
-            //printf("datalength: "); Serial.println(msgOut.len));
-            //printf("data: ");
-            //for (int i = 0; i < 8; i++){
-            //printf(Nybble2Hex((getDataByte(&msgOut, i) >> 4) & 0x0F));
-            //printf(Nybble2Hex(getDataByte(&msgOut, i) & 0x0F));
-            //}
-            //Serial.println();
+    // state machine for the initialisation process.
+    // send a RID (Reserve ID) message
+    msgOut.id = ((uint32_t)RID << 12 | ((uint32_t)alias & 0x0FFF));
+    msgOut.len = 0;
+    SendMessage();
+    //printf("RID: ");
+    //Serial.println(*getPId(&msgOut, ), HEX);
+    cidSent = RIDSent;
 
-            // send an initialisation complete message
-            msgOut.id = ((uint32_t)INIT << 12 | ((uint32_t)alias & 0x0FFF));
-            setNodeidToData(&msgOut, nodeId);
-            cidSent = INITSent;
-            SendMessage();
-        
+    // transition to permitted
+    // Send a AMD (Alias Map Definition) message
+    msgOut.id = ((uint32_t)AMD << 12 | ((uint32_t)alias & 0x0FFF));
+    setNodeidToData(&msgOut, nodeId);
+    SendMessage();
+    cidSent = AMDSent;
+    //Serial.println("Preparing AMD");
+    //printf("CANid: "); Serial.println(getId(&msgOut, ), HEX);
+    //printf("datalength: "); Serial.println(msgOut.len));
+    //printf("data: ");
+    //for (int i = 0; i < 8; i++){
+    //printf(Nybble2Hex((getDataByte(&msgOut, i) >> 4) & 0x0F));
+    //printf(Nybble2Hex(getDataByte(&msgOut, i) & 0x0F));
+    //}
+    //Serial.println();
+
+    // send an initialisation complete message
+    msgOut.id = ((uint32_t)INIT << 12 | ((uint32_t)alias & 0x0FFF));
+    setNodeidToData(&msgOut, nodeId);
+    cidSent = INITSent;
+    SendMessage();
+
     printf("%s: leaving\n", __func__);
 }
 
 void processMessage(struct CAN_MESSAGE* cm) {
-    //byte dataBytes[8];
-
-    ////	char buf[50];
-
-    //// initialisation failed - not much we can do here
-    //if (!wifiInitialised)
-    //return;
-
-    //// Is any one listening? If not there's no point processing anything
-    //if (!wifiClient.connected()) {
-    //if (wifiServer.hasClient())    {
-    //// a new client has connected
-    //wifiClient = wifiServer.available();
-    //} else {
-    //return;
-    //}
-    //}
 
     // (un) initialise the output id. 0=>no valid message to send
     msgOut.id = 0;
 
- 
+    // process any incoming messages
 
-
-
-        // process any incoming messages
-
-        //msgIn.id = 0;
+    //msgIn.id = 0;
 
 #ifdef SHOWMESSAGES
-        printf("%s: Received Message. [%04x]", __func__, cm->id);
-        if (cm->len > 0) {
-            for (uint8_t i = 0; i < cm->len; i++) {
-                if (cm->dataBytes[i] < 0x10) {
-                    printf("0");
-                }
-                printf("%01x", cm->dataBytes[i]);
+    printf("%s: Received Message. [%04x]", __func__, cm->id);
+    if (cm->len > 0) {
+        for (uint8_t i = 0; i < cm->len; i++) {
+            if (cm->dataBytes[i] < 0x10) {
+                printf("0");
             }
+            printf("%01x", cm->dataBytes[i]);
         }
-        printf("\n");
+    }
+    printf("\n");
 #endif
 
-        //setId(cm, WiFiIdentifier & !0x10000000);
- //       msgIn.id = cm->id;
- //       setData(cm, &cm->dataBytes[0], cm->len);
+    //setId(cm, WiFiIdentifier & !0x10000000);
+    //       msgIn.id = cm->id;
+    //       setData(cm, &cm->dataBytes[0], cm->len);
 
-        // Respond to the message
-            printf("%s: Processing message %04x\n", __func__, ((cm->id & 0x0FFFF000) >> 12));
-            senderAlias = (cm->id & 0x00000FFFUL);  // get JMRI's alias
+    // Respond to the message
+    printf("%s: Processing message %04x\n", __func__, ((cm->id & 0x0FFFF000) >> 12));
+    senderAlias = (cm->id & 0x00000FFFUL);  // get JMRI's alias
 
-            // decode the message type identifier (MTI)
-            switch ((uint16_t)((cm->id & 0x0FFFF000) >> 12)) {
+    // decode the message type identifier (MTI)
+    switch ((uint16_t)((cm->id & 0x0FFFF000) >> 12)) {
 
-            // A Simple Node Ident Info Request
-            case SNIIRQ:
-                // respond with the Simple Node Ident Information
-                sendSNIHeader(alias, senderAlias);
-                sendSNIReply(alias, senderAlias, Manufacturer);
-                sendSNIReply(alias, senderAlias, ModelName);
-                sendSNIReply(alias, senderAlias, HardwareVersion);
-                sendSNIReply(alias, senderAlias, SoftwareVersion);
-                sendSNIUserHeader(alias, senderAlias);
-                sendSNIUserReply(alias, senderAlias, 'N');  // send the user name for the node
-                sendSNIUserReply(alias, senderAlias, 'D');  // send the user definition for the node
-                break;
+    // A Simple Node Ident Info Request
+    case SNIIRQ:
+        // respond with the Simple Node Ident Information
+        sendSNIHeader(alias, senderAlias);
+        sendSNIReply(alias, senderAlias, Manufacturer);
+        sendSNIReply(alias, senderAlias, ModelName);
+        sendSNIReply(alias, senderAlias, HardwareVersion);
+        sendSNIReply(alias, senderAlias, SoftwareVersion);
+        sendSNIUserHeader(alias, senderAlias);
+        sendSNIUserReply(alias, senderAlias, 'N');  // send the user name for the node
+        sendSNIUserReply(alias, senderAlias, 'D');  // send the user definition for the node
+        break;
 
-            // A protocol support reply inquiry.
-            case  PSI: {
-                // we can do:
-                //  SPSP - Simple Protocol subset (whatever that is - the standards are vague)
-                //  SNIP - Simple Node Information Protocol
-                //  DP   - Datagram Protocol
-                //  MCP  - Memory Configuration Protocol
-                //  CDIP - Configuration Description Information
+    // A protocol support reply inquiry.
+    case  PSI: {
+        // we can do:
+        //  SPSP - Simple Protocol subset (whatever that is - the standards are vague)
+        //  SNIP - Simple Node Information Protocol
+        //  DP   - Datagram Protocol
+        //  MCP  - Memory Configuration Protocol
+        //  CDIP - Configuration Description Information
 
-                uint32_t protflags = SPSP | SNIP | DGP | MCP | CDIP;
-                // Respond with a Protocol Support Reply
-                msgOut.id = ((uint32_t)PSR << 12 | ((uint32_t)alias & 0x0FFF));
-                msgOut.dataBytes[0] = (byte)(senderAlias >> 8);
-                msgOut.dataBytes[1] = (byte)(senderAlias & 0xFF);
-                msgOut.dataBytes[2] = (byte)(protflags >> 16);
-                msgOut.dataBytes[3] = (byte)(protflags >> 8) & 0xFF;
-                msgOut.dataBytes[4] = (byte)(protflags & 0xFF);
-                msgOut.dataBytes[5] = '\0';
-                msgOut.dataBytes[6] = '\0';
-                msgOut.dataBytes[7] = '\0';
-                msgOut.len = 8;
-                //setData(&msgOut, &dataBytes[0], 8);
-                SendMessage();
-                break;
-            }
+        uint32_t protflags = SPSP | SNIP | DGP | MCP | CDIP;
+        // Respond with a Protocol Support Reply
+        msgOut.id = ((uint32_t)PSR << 12 | ((uint32_t)alias & 0x0FFF));
+        msgOut.dataBytes[0] = (byte)(senderAlias >> 8);
+        msgOut.dataBytes[1] = (byte)(senderAlias & 0xFF);
+        msgOut.dataBytes[2] = (byte)(protflags >> 16);
+        msgOut.dataBytes[3] = (byte)(protflags >> 8) & 0xFF;
+        msgOut.dataBytes[4] = (byte)(protflags & 0xFF);
+        msgOut.dataBytes[5] = '\0';
+        msgOut.dataBytes[6] = '\0';
+        msgOut.dataBytes[7] = '\0';
+        msgOut.len = 8;
+        //setData(&msgOut, &dataBytes[0], 8);
+        SendMessage();
+        break;
+    }
 
-            // A Verify Node ID Number Global request
-            case VNIG:  // 0x9490
-                // respond with our full node id
-                msgOut.id = ((uint32_t)VNN << 12 | ((uint32_t)alias & 0x0FFF) );
-                setNodeidToData(&msgOut, nodeId);
-                SendMessage();
-                break;
+    // A Verify Node ID Number Global request
+    case VNIG:  // 0x9490
+        // respond with our full node id
+        msgOut.id = ((uint32_t)VNN << 12 | ((uint32_t)alias & 0x0FFF) );
+        setNodeidToData(&msgOut, nodeId);
+        SendMessage();
+        break;
 
-            // datagrams
+    // datagrams
 
-            // Note: the following case statements are specific to this model.
-            // profuction code will need to handle the alias part differently.
+    // Note: the following case statements are specific to this model.
+    // profuction code will need to handle the alias part differently.
 
-            case 0xA123:  // a single frame datagran addressed to me
-                ReceiveDatagram(cm, &datagramBuffer[0], &datagramPtr);
-                ProcessDatagram(senderAlias, alias, cm, &datagramBuffer[0], datagramPtr);
-                break;
+    case 0xA123:  // a single frame datagran addressed to me
+        ReceiveDatagram(cm, &datagramBuffer[0], &datagramPtr);
+        ProcessDatagram(senderAlias, alias, cm, &datagramBuffer[0], datagramPtr);
+        break;
 
-            case 0xB123:  // the first of a multiframe datagram addressed to me
-            case 0xC123:  // one of the middle frames, addressed to me
-                ReceiveDatagram(cm, &datagramBuffer[0], &datagramPtr);
-                break;
+    case 0xB123:  // the first of a multiframe datagram addressed to me
+    case 0xC123:  // one of the middle frames, addressed to me
+        ReceiveDatagram(cm, &datagramBuffer[0], &datagramPtr);
+        break;
 
-            case 0xD123:  // the final multiframe datagram addressed to me
-                ReceiveDatagram(cm, &datagramBuffer[0], &datagramPtr);
-                // as this is the last frame, we can process the whole datagram of up to 72 characters
-                ProcessDatagram(senderAlias, alias, cm, &datagramBuffer[0], datagramPtr);
-                break;
+    case 0xD123:  // the final multiframe datagram addressed to me
+        ReceiveDatagram(cm, &datagramBuffer[0], &datagramPtr);
+        // as this is the last frame, we can process the whole datagram of up to 72 characters
+        ProcessDatagram(senderAlias, alias, cm, &datagramBuffer[0], datagramPtr);
+        break;
 
-            case DROK:
-                // process a Daragram received OK message from JMRI (No longer used?)
-                if (waitForDatagramACK) waitForDatagramACK = false;
-                break;
+    case DROK:
+        // process a Daragram received OK message from JMRI (No longer used?)
+        if (waitForDatagramACK) waitForDatagramACK = false;
+        break;
 
-            // Message [11111123] from the JMRI send Frame Tool
-            // hex dump the EEPROM data area
-            case 0x1111:
-                DumpEEPROM();
-                break;
+    // Message [11111123] from the JMRI send Frame Tool
+    // hex dump the EEPROM data area
+    case 0x1111:
+        DumpEEPROM();
+        break;
 
-            // Message [12222123] from the JMRI send Frame Tool
-            // Do a formatted dump of the EEPROM data area to make sure the data has been correctly written
-            // to the expected location.
-            case 0x2222:
-                DumpEEPROMFormatted();
-                break;
+    // Message [12222123] from the JMRI send Frame Tool
+    // Do a formatted dump of the EEPROM data area to make sure the data has been correctly written
+    // to the expected location.
+    case 0x2222:
+        DumpEEPROMFormatted();
+        break;
 
-            default:
-                printf("%s: unrecognised message type: %04X\n", __func__, (uint16_t)((cm->id & 0x0FFFF000) >> 12));
-                break;
-            }
+    // Message [13333123] from the JMRI send Frame Tool
+    // persist the config to SPIFFS
+    case 0x3333:    
+        writeConfig(&eed);
+        break;
         
-
-
-
-    //// is there anything to send?
-    //if (getId(&msgOut) != 0) {
-    //SendMessage();
-    //}
-
+    default:
+        printf("%s: unrecognised message type: %04X\n", __func__, (uint16_t)((cm->id & 0x0FFFF000) >> 12));
+        break;
+    }
 }
 
-//bool initialiseESP8266(WiFiServer* server) {
-    //// Set up the ESP8266
-    //// set the fixed ip adresses
-    //WiFi.config(SERVERIP, GATEWAY, SUBNET, DNS);
-
-    //// connect to the WLAN router
-    //WiFi.begin(ssid, password);
-
-    //uint8_t i = 0;
-    //while (WiFi.status() != WL_CONNECTED && i++ < 21) delay(500);
-    //if (i == 21) {
-//#ifdef SHOWMESSAGES
-        //printf("Could not connect to");
-        //Serial.println(ssid);
-//#endif
-        //return false;
-    //}
-
-    ////start the server
-
-    //server->begin();
-    //server->setNoDelay(true);
-
-//#ifdef SHOWMESSAGES
-    //printf("Ready! Use 'telnet ");
-    //printf(WiFi.localIP());
-    //Serial.println(" 23' to connect");
-    //printf("subnetMask: ");
-    //Serial.println(WiFi.subnetMask());
-    //printf("gatewayIP: ");
-    //Serial.println(WiFi.gatewayIP());
-    //printf("dnsIP: ");
-    //Serial.println(WiFi.dnsIP());
-//#endif
-
-    //return true;
-//}
 
 bool SendMessage() {
     // Convert MsgOut to CANASCII format and send it to the WiFi client (JMRI)
 
     bool OK = true;
 
-	printf("%s: sending message, id = %08X\n", __func__, msgOut.id);
+    printf("%s: sending message, id = %08X\n", __func__, msgOut.id);
 
     // Only send if there's data
     if (msgOut.id != 0) {
-		msgOut.id = msgOut.id | 0x10000000;
+        msgOut.id = msgOut.id | 0x10000000;
         if(xQueueSendToBack(qh.xQueueCanToWiFi, &msgOut, 500 / portTICK_PERIOD_MS) != pdPASS ) {
             printf("Queue xQueueWiFiToCan full, discarding message\n");
             OK = false;
@@ -607,7 +500,7 @@ bool sendSNIReply(uint16_t senderAlias, uint16_t destAlias, const char infoText[
         msgOut.dataBytes[0] |= 0x30;  // intermediate frame
 
         if (dataLen > 7 || pos > strlen(infoText)) {
-			msgOut.len = dataLen;
+            msgOut.len = dataLen;
             //setData(&msgOut, &dataBytes[0], dataLen);
             //vTaskDelay(50 * portTICK_PERIOD_MS);   // add delay otherwise messages are not sent in sequence (Not necessary here: this is a problem with the CAN library)
             SendMessage();
@@ -682,7 +575,7 @@ bool sendSNIUserReply(uint16_t senderAlias, uint16_t destAlias, const char userV
             msgOut.dataBytes[0] &= ~0x10;  // last frame
         }
         if (dataLen > 7 || pos > strlen(infoText)) {
-			msgOut.len = dataLen;
+            msgOut.len = dataLen;
             //setData(&msgOut, &dataBytes[0], dataLen);
             //vTaskDelay(50);   // add delay otherwise messages are not sent in sequence (Not necessary here: this is a problem with the CAN library)
             SendMessage();
@@ -733,7 +626,7 @@ void SendDatagram(const uint16_t destAlias, uint16_t senderAlias, struct CAN_MES
     // send the data in 8-byte chunks, identify the last frame as the final frame in the datagram.
     for (int i = 0; i < length; i+=8) {
         msgOut.id = ((uint32_t)((i < (length - 8)? 0xC000 : 0xD000) + destAlias) << 12 | ((uint32_t)senderAlias & 0x0FFF));
-        
+
         //setData(&msgOut, (byte*)(&data[address + i]), (length - i) >= 8 ? 8 : length - i );
         memcpy(&msgOut.dataBytes[0], (byte*)(&data[address + i]), (length - i) >= 8 ? 8 : length - i );
         msgOut.len = (length - i) >= 8 ? 8 : length - i;
@@ -751,7 +644,7 @@ void SendWriteReply(const uint16_t destAlias, uint16_t senderAlias, byte * buf, 
     //hexDump("SendWriteReply", buf, dataPos);
     msgOut.id = ((uint32_t)(0xA000 + destAlias) << 12 | ((uint32_t)senderAlias & 0x0FFF));
     //setData(&msgOut, buf, dataPos);  // retrieve as many data bytes as we were sent
-    memcpy(&msgOut.dataBytes[0], buf, dataPos); 
+    memcpy(&msgOut.dataBytes[0], buf, dataPos);
     msgOut.len = dataPos;
     //hexDump("SendWriteReply - set data buf", getPData(&msgOut, ), dataPos);
     //printf("*buf+1 "); Serial.println(*(buf+1));
@@ -776,7 +669,7 @@ void SendWriteReply(const uint16_t destAlias, uint16_t senderAlias, byte * buf, 
 
 void ReceiveDatagram(struct CAN_MESSAGE* m, byte* buffer, uint8_t * ptr) {
     // receive a datagram and build the datagram buffer
-//    uint8_t dataLength = 0;
+    //    uint8_t dataLength = 0;
 
     //    printf("ptr: ");
     //    Serial.println(*ptr);
@@ -788,8 +681,8 @@ void ReceiveDatagram(struct CAN_MESSAGE* m, byte* buffer, uint8_t * ptr) {
     }
 
     // fill the received data into the buffer at the appropriate offset, then adjust the pointer
-//    getData(m, buffer + *ptr, &dataLength);
-//    *ptr += dataLength;
+    //    getData(m, buffer + *ptr, &dataLength);
+    //    *ptr += dataLength;
 
     memcpy(buffer + *ptr, &m->dataBytes[0], m->len);
     *ptr += m->len;
@@ -800,14 +693,6 @@ void ProcessDatagram(uint16_t senderAlias, uint16_t alias, struct CAN_MESSAGE* m
 
     uint32_t errorCode = 0x0000;  // no error (so far)
     byte addressSpace = 0x00;     // undefined Segment
-
-    //printf("Datagram Buffer: ");
-    //for(int i = 0; i < 8; i++) {
-    //if (datagram[i] < 0x10) printf("0");
-    //printf(datagram[i], HEX);
-    //printf(" ");
-    //}
-    //Serial.println();
 
     // configuration datagrams (read and write) have 0x20 in the first byte (Byte[0])
     switch (*datagram) {
@@ -918,21 +803,6 @@ void ProcessDatagram(uint16_t senderAlias, uint16_t alias, struct CAN_MESSAGE* m
 void DumpEEPROM() {
     // dump the EEPROM in hex format
     hexDump("EEPROM Data", &eed, sizeof(struct EEPROM_Data));
-    //for (int i = 0; i < sizeof(EEPROM_Data); i+= 32){
-    //printf(i); printf(" ");
-    //for (int j = 0; j < 32; j++){
-    //printf(Nybble2Hex((((char)eed)[(i*32)+j]) >> 4));	printf(Nybble2Hex((((char)eed)[(i*32)+j]) & 0x0F));
-    //}
-    //printf(" ");
-    //for (int j = 0; j < 32; j++){
-    //if (((byte)eed)[(i*32)+j] >= 32 && ((byte)eed)[(i*32)+j] <= 126){
-    //printf(((char)eed)[(i*32)+j]);
-    //}else{
-    //printf(".");
-    //}
-    //}
-    //Serial.println();
-    //}
 }
 
 
@@ -1013,7 +883,7 @@ void DumpEEPROMFormatted() {
             print64BitHex(ReverseEndianness(&eed.event[i].eventId));
             printf("\n");
             printf("eventName: %s\n", eed.event[i].eventName);
-            printf("eventType: %d\n", eed.event[i].eventType);
+            printf("input Output: %d\n", eed.event[i].inputOutput);
             printf("I2C address / pin: %d\n", eed.event[i].address);
             printf("command value: %d\n", eed.event[i].eventValue);
         }
@@ -1049,11 +919,11 @@ uint64_t getEventIdFromData(struct CAN_MESSAGE* cm) {
         for (uint8_t i = 0; i < 8; i++)
             eid = (eid << 8) + cm->dataBytes[i];
         return eid;
-	} else
+    } else
         return 0;
 }
 
 void ShowCdiXmlLength() {
-	// Printitem(strlen(cdiXml));
-	printf("strlen(cdiXml): %d \n", strlen(cdiXml));
+    // Printitem(strlen(cdiXml));
+    printf("strlen(cdiXml): %d \n", strlen(cdiXml));
 }

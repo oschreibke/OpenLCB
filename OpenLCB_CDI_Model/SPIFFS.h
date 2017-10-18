@@ -1,5 +1,5 @@
 /*
- * canmessage.h
+ * SPIFFS.h
  * 
  * Copyright 2017 Otto Schreibke <oschreibke@gmail.com>
  * 
@@ -23,16 +23,16 @@
  * 
  */
 
-#ifndef CANMESSAGE_H
-#define CANMESSAGE_H
+#ifndef _SPIFFS_H_
+#define _SPIFFS_H_
 
-#include "CANCommon.h"
+#include "OpenLCB_CDI_Model.h"
 
-typedef struct CAN_MESSAGE{
-    uint32_t id; 
-    enum CAN_message_type ext;
-    uint8_t  len; 
-    uint8_t  dataBytes[8];
-} can_message;
 
+// forward declarations
+bool read_spiffs(char* fileName, char* serverName, int bufSize);
+bool write_spiffs(char* fileName, char* serverName);
+void fs_info(void);
+void decode_spiffs_err(int err);
+bool readConfig(struct EEPROM_Data* eed);
 #endif

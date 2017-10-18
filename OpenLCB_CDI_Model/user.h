@@ -24,8 +24,8 @@
  */
 
 
-#ifndef WIFI_CAN_H
-#define WIFI_CAN_H
+#ifndef __USER_H__
+#define __USER_H__
 
 bool check_wifi_connection();
 

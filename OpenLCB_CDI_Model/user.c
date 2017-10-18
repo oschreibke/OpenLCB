@@ -1,5 +1,5 @@
 /*
- * wifi_can.cpp
+ * wifi_can.c
  * 
  * Copyright 2017 Otto Schreibke <oschreibke@gmail.com>
  * 
@@ -36,7 +36,7 @@
 #include "ota-tftp.h"
 #include "rboot-api.h"
 
-#include "wifi_can.h"
+#include "user.h"
 #include "tcpserver.h"
 #include "canmessage.h"
 #include "OpenLCB_CDI_Model.h"
