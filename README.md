@@ -4,6 +4,7 @@ Contains the following folders:
 - ATTiny85_ServoController            Example servo controller.
 - ESP8266_arduino_OpenLCB_CDI_Model   Working model of OpenLCB configuration (using JMRI)
 - ESP8266_arduino_WiFiTelnetToSerial  The sketch for the WiFi gateway.
+- ESP8266_rtos_OpenLCB_CDI_Model      Working model of OpenLCB configuration (using JMRI). Commits the configuration to SPIFFS
 - ESP8266_rtos_WiFi_CANASCII_to_CAN   RTOS WiFi CANASCII to CAN gateway. Replaces ESP8266_arduino_WiFi_to_CAN_v4.
 - ESP8266_rtos_ota                    Simple rtos demo of OTA (over the air) flashing.
 - fritzing                            Fritzing connection diagrams.
